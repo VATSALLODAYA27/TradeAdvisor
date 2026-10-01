@@ -1,0 +1,60 @@
+# YOUR rules. Every [section] is one advisor agent. The rules below are only placeholders; replace them with your metrics.
+#
+# Each key in a section is a verdict label -> a list of rules. The labels are checked top to bottom,
+# and the first label whose rules ALL pass is the verdict. If none pass, the verdict is `default`.
+#
+# Rule = [metric, op, value]
+#   op:    <  <=  >  >=  ==  between
+#   value: a number, another metric's name ("vwap"), or [low, high] for `between`
+# Metric names: run `python data.py RELIANCE` or open the Rules page to see all of them with live values.
+# A missing metric (e.g. no options for a BSE-only stock) makes that rule fail.
+
+[intraday]
+default = "NO TRADE"
+BUY  = [["price", ">", "vwap"], ["price", ">", "orb_high"], ["rsi_5m", "between", [55, 75]], ["nifty_change_pct", ">", 0]]
+SELL = [["price", "<", "vwap"], ["price", "<", "orb_low"], ["rsi_5m", "between", [25, 45]], ["nifty_change_pct", "<", 0]]
+
+[swing]
+default = "HOLD"
+BUY  = [["close", ">", "ema_50"], ["ema_20", ">", "ema_50"], ["rsi", "between", [45, 65]], ["macd_hist", ">", 0]]
+SELL = [["close", "<", "ema_50"], ["ema_20", "<", "ema_50"], ["macd_hist", "<", 0]]
+
+[longterm]
+default = "HOLD"
+BUY  = [["pe", "<", 30], ["roe", ">", 15], ["debt_to_equity", "<", 100], ["earnings_growth", ">", 10], ["close", ">", "ema_200"]]
+SELL = [["earnings_growth", "<", 0], ["close", "<", "ema_200"]]
+
+[options]
+default = "NEUTRAL"
+BULLISH = [["pcr_oi", ">", 1.2], ["spot", ">", "put_wall"], ["spot", ">", "vwap"]]
+BEARISH = [["pcr_oi", "<", 0.7], ["spot", "<", "call_wall"], ["spot", "<", "vwap"]]
+SELL_PREMIUM = [["atm_iv", ">", 25], ["vix", ">", 16]]
+
+[hedge]
+default = "NO HEDGE NEEDED"
+HEDGE_NOW = [["vix", ">", 18], ["nifty_30d_pct", "<", -5], ["fii_net_cr", "<", -2000]]
+WATCH     = [["vix", ">", 15], ["nifty_adv_dec", "<", 0.7]]
+
+# Vatsal's indicator (vatsal.py): vs_signal = +1 BUY / -1 SELL from EMA 5/13 trigger + EMA200 filter + EMA 50/200 state,
+# vs_signal_age = candles since it fired. vs5m_* is the same on 5-minute candles.
+[vatsal]
+default = "NO SIGNAL"
+BUY = [["vs_signal", "==", 1], ["vs_signal_age", "<=", 3]]
+SELL = [["vs_signal", "==", -1], ["vs_signal_age", "<=", 3]]
+BULLISH = [["vs_bias", "==", 1]]
+BEARISH = [["vs_bias", "==", -1]]
+
+[vatsal_5m]
+default = "NO SIGNAL"
+BUY = [["vs5m_signal", "==", 1], ["vs5m_signal_age", "<=", 3]]
+SELL = [["vs5m_signal", "==", -1], ["vs5m_signal_age", "<=", 3]]
+BULLISH = [["vs5m_bias", "==", 1]]
+BEARISH = [["vs5m_bias", "==", -1]]
+
+# Signal-based advisor (signals.py): every sig_* metric is 1 when that signal is active.
+[breakout]
+default = "NO SETUP"
+BUY = [["sig_resistance_break", "==", 1], ["sig_macd_above_signal", "==", 1], ["rsi", "<", 70]]
+SELL = [["sig_support_break", "==", 1], ["sig_macd_below_signal", "==", 1], ["rsi", ">", 30]]
+BULLISH = [["sig_score", ">=", 3]]
+BEARISH = [["sig_score", "<=", -3]]

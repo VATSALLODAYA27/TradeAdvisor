@@ -1,0 +1,7 @@
+langgraph
+yfinance
+pandas
+requests
+streamlit
+plotly
+reportlab

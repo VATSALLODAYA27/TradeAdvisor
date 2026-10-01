@@ -1,0 +1,18 @@
+[theme]
+base = "dark"
+primaryColor = "#16c784"
+backgroundColor = "#070b14"
+secondaryBackgroundColor = "#0f1626"
+textColor = "#e6ebf5"
+borderColor = "#1e2a42"
+font = "sans-serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[global]
+# app.py re-stores widget state so it survives lazy tab switches; the saved value wins over the widget default
+disableWidgetStateDuplicationWarning = true
