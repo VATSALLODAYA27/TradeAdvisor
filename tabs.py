@@ -3,15 +3,17 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import advisor
 import backtest
 import brief
 import history
+import ipo
 import journal
 import market
 import scanner
 import strategies
 from setups import years_to
-from views import e, fmt
+from views import e, fmt, tone, verdicts
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -350,6 +352,114 @@ def backtest_tab(rules, vmode):
         st.info("No trades: the long label never fired in this window. Check the verdict labels or try a longer history.")
     st.caption("Fully invested per trade, returns compound, costs on both sides. Stops/targets are checked on daily highs/lows; "
                "a gap through them fills at the open, and a day touching both counts as the stop.")
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _ipos():
+    return ipo.all_ipos()
+
+
+def _x(v):
+    return "—" if v is None else f"{v:,.2f}×"
+
+
+def ipo_tab(rules):
+    st.html('<div class="sec">IPOs<span class="muted">open and upcoming issues from NSE · GMP and financials from ipowatch.in · '
+            'verdicts from the [ipo] section of your rules</span></div>')
+    c1, c2, _ = st.columns([2.2, 1, 3], vertical_alignment="bottom")
+    kind = c1.segmented_control("Show", ["Mainboard", "SME", "All"], default="Mainboard", key="ipo_kind") or "Mainboard"
+    if c2.button("Refresh", help="Data is cached for 10 minutes"):
+        _ipos.clear()
+    try:
+        with st.spinner("Fetching IPOs, GMP and financials…"):
+            xs = _ipos()
+    except Exception as ex:
+        st.warning(f"NSE didn't respond ({type(ex).__name__}). Try again in a moment.")
+        return
+    xs = [x for x in xs if kind == "All" or (x["row"].get("series") == "SME") == (kind == "SME")]
+    if not xs:
+        st.info(f"No open or upcoming {kind.lower()} IPOs on NSE right now.")
+        return
+    section = rules.get("ipo")
+    if not section:
+        st.info("Add an [ipo] section on the Rules tab (metrics start with ipo_) to get APPLY / AVOID verdicts here.")
+    verdict = {id(x): advisor.verdict(section, x["metrics"]) if section else None for x in xs}
+
+    df = pd.DataFrame([{
+        "company": x["row"]["companyName"], "type": "SME" if x["row"].get("series") == "SME" else "Mainboard",
+        "status": x["row"].get("status"), "opens": x["row"].get("issueStartDate"), "closes": x["row"].get("issueEndDate"),
+        "price": x["metrics"]["ipo_price"], "min_invest": x["metrics"]["ipo_min_amount"],
+        "gmp": x["metrics"]["ipo_gmp"], "gmp_pct": x["metrics"]["ipo_gmp_pct"],
+        "sub_total": x["metrics"]["ipo_sub_total"], "sub_qib": x["metrics"]["ipo_sub_qib"],
+        "sub_nii": x["metrics"]["ipo_sub_nii"], "sub_retail": x["metrics"]["ipo_sub_retail"],
+        "verdict": verdict[id(x)]["verdict"] if verdict[id(x)] else "—"} for x in xs])
+    times = lambda label: st.column_config.NumberColumn(label, format="%.2f×")
+    sel = st.dataframe(df, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row", key="ipo_table",
+                       column_config={"price": st.column_config.NumberColumn("Price ₹ (upper band)", format="%.0f"),
+                                      "min_invest": st.column_config.NumberColumn("Min. retail ₹", format="%,.0f"),
+                                      "gmp": st.column_config.NumberColumn("GMP ₹", format="%.0f"),
+                                      "gmp_pct": st.column_config.NumberColumn("GMP %", format="%+.2f"),
+                                      "sub_total": times("Subscribed"), "sub_qib": times("QIB"), "sub_nii": times("NII"),
+                                      "sub_retail": times("Retail")})
+    rows = sel.selection.rows if sel and sel.selection else []
+    x = xs[rows[0]] if rows else xs[0]
+    m, r, pg, v = x["metrics"], x["row"], x["page"], verdict[id(x)]
+    st.caption("Select a row to see its details. Subscription keeps rising until the last day, so a verdict can change.")
+
+    badge = f'<span class="badge lg {tone(v["verdict"])}">{e(v["verdict"].replace("_", " "))}</span>' if v else ""
+    est = m["ipo_price"] + m["ipo_gmp"] if m["ipo_price"] and m["ipo_gmp"] is not None else None
+    money = lambda val, d=0: "—" if val is None else f"₹{fmt(val, d)}"
+    pct = lambda val: "—" if val is None else f"{val:+.2f}%"
+    kpis = [("Price band", e(r.get("issuePrice") or r.get("priceBand") or "—")), ("Issue size", f"{money(m['ipo_issue_cr'], 2)} cr"),
+            ("Min. retail investment", money(m["ipo_min_amount"])),
+            ("GMP", f"{money(m['ipo_gmp'])} ({pct(m['ipo_gmp_pct'])})"), ("Est. listing price", money(est)),
+            ("Subscribed (total)", _x(m["ipo_sub_total"])), ("Closes", f"{e(r.get('issueEndDate', '—'))} · {m['ipo_days_to_close']} days"),
+            ("Promoters after IPO", "—" if m["ipo_promoter_post_pct"] is None else f"{fmt(m['ipo_promoter_post_pct'])}%"),
+            ("Revenue (latest FY)", f"{money(m['ipo_revenue_cr'], 2)} cr · {pct(m['ipo_revenue_growth'])}"),
+            ("Profit (latest FY)", f"{money(m['ipo_pat_cr'], 2)} cr · {pct(m['ipo_pat_growth'])}"),
+            ("ROE / ROCE", f"{fmt(m['ipo_roe'])}% / {fmt(m['ipo_roce'])}%"),
+            ("EBITDA / PAT margin", f"{fmt(m['ipo_ebitda_margin'])}% / {fmt(m['ipo_pat_margin'])}%"),
+            ("Debt to equity", fmt(m["ipo_debt_equity"])), ("P/E at upper band", fmt(m["ipo_pe"]))]
+    st.html(f'<section class="panel"><header style="display:flex;gap:12px;align-items:center;margin-bottom:10px">'
+            f'<h3 style="margin:0">{e(r["companyName"])}</h3>{badge}</header>'
+            f'<div class="kpis" style="grid-template-columns:repeat(4,1fr)">'
+            + "".join(f"<div><span>{k}</span><b>{val}</b></div>" for k, val in kpis) + "</div></section>")
+
+    c1, c2 = st.columns(2)
+    cats = [(k, x["sub"].get(k.lower())) for k in ("QIB", "NII", "Retail", "Total")]
+    if any(val is not None for _, val in cats):
+        fig = go.Figure(go.Bar(x=[k for k, _ in cats], y=[val or 0 for _, val in cats], text=[_x(val) for _, val in cats],
+                               textposition="outside", marker_color=[UP if (val or 0) >= 1 else MUTED for _, val in cats]))
+        fig.add_hline(y=1, line_dash="dot", line_color=MUTED, annotation_text="fully subscribed")
+        fig.update_layout(**CHART_LAYOUT, title=f"Subscription (times) · {x['sub'].get('updated') or ''}")
+        c1.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    else:
+        c1.info("Subscription starts when the issue opens." if r.get("status") != "Active" else "NSE has no bid data for this issue yet.")
+    fin = pg.get("financials")
+    if fin is not None:
+        f = fin[fin.iloc[:, 0].astype(str).str.fullmatch(r"\s*(FY)?\s*\d{2,4}\s*")]
+        fig = go.Figure()
+        for col, color in (("Revenue", "#3987e5"), ("PAT", UP)):
+            if col in f:
+                fig.add_trace(go.Bar(x=f.iloc[:, 0].astype(str), y=f[col].map(ipo.num), name=col, marker_color=color))
+        fig.update_layout(**CHART_LAYOUT, title="Revenue and profit by fiscal year (₹ crore)", barmode="group",
+                          legend=dict(orientation="h", y=-0.15))
+        c2.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    else:
+        c2.info("No financials found for this IPO on ipowatch.in.")
+
+    if v:
+        st.html('<div class="sec">Your IPO rules</div>' + verdicts({"order": ["ipo"], "verdicts": {"ipo": v}}))
+    for label, key in (("Financials", "financials"), ("Key ratios", "kpi"), ("Issue details", "issue"), ("Lot sizes", "lots"),
+                       ("Timeline", "timeline"), ("Shareholding", "holding"), ("Objects of the issue", "objects")):
+        if pg.get(key) is not None:
+            with st.expander(label):
+                st.dataframe(pg[key], hide_index=True, width="stretch")
+    src = f' · <a href="{e(x["gmp"]["url"])}" target="_blank">ipowatch.in page</a>' if x["gmp"] and x["gmp"].get("url") else ""
+    st.html(f'<p class="note">Sources: NSE (list, subscription){src}. GMP is an unofficial grey-market quote, not a listing '
+            f'guarantee. Financials are from the prospectus as summarised by ipowatch.in; check the RHP before applying.</p>')
+    if x["errors"]:
+        st.caption("Unavailable: " + "; ".join(f"{k} ({val})" for k, val in x["errors"].items()))
 
 
 def brief_tab():

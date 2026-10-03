@@ -24,7 +24,8 @@ QUERY = re.compile(r"^\s*([A-Z0-9][A-Z0-9&_-]*?)(?:\s*(\d+(?:\.\d+)?)\s*(CE|PE|C
 
 def parse_query(text):
     """'NIFTY 22700 PUT' / 'nifty22700pe' / 'RELIANCE 1200 CE' / 'TCS' -> (symbol, strike or None, 'CE'|'PE'|None)."""
-    m = QUERY.match((text or "").upper())
+    text = re.sub(r"^\s*NIFTY\s*50(?=\s|$)", "NIFTY", (text or "").upper())  # the index's full name, not strike 50
+    m = QUERY.match(text)
     if not m:
         return (text or "").strip().upper(), None, None
     sym, strike, kind = m.groups()

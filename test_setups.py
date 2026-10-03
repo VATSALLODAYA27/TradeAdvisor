@@ -87,6 +87,7 @@ assert all(x["t1_why"] == "1.5×ATR" and x["stop_why"].startswith("beyond 1×ATR
 from setups import parse_query, setup_verdict, strike_verdict
 assert parse_query("nifty 22700 put") == ("NIFTY", 22700.0, "PE")
 assert parse_query("NIFTY22700CE") == ("NIFTY", 22700.0, "CE")
+assert parse_query("NIFTY 50") == ("NIFTY", None, None) and parse_query("nifty 50 22700 pe") == ("NIFTY", 22700.0, "PE")  # index name, not strike 50
 assert parse_query(" reliance 1200 c ") == ("RELIANCE", 1200.0, "CE")
 assert parse_query("BANKNIFTY 51000") == ("BANKNIFTY", 51000.0, None)
 assert parse_query("TCS") == ("TCS", None, None) and parse_query("M&M") == ("M&M", None, None)

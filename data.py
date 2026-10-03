@@ -165,6 +165,7 @@ def all_emas(s):
 
 def metric_names(s):
     """Every metric key collect() can produce with these settings (for the rule builder's suggestions)."""
+    import ipo  # ipo imports this module
     ind = [*(f"ema_{n}" for n in all_emas(s)), *(f"sma_{n}" for n in s["sma"]), "rsi", "macd", "macd_signal", "macd_hist",
            "atr", "atr_pct", "bb_upper", "bb_mid", "bb_lower", "bb_pct_b", "supertrend", "supertrend_dir", "vol_ratio"]
     return {
@@ -179,6 +180,7 @@ def metric_names(s):
         "Intraday": ["price", "vwap", "rsi_5m", "vol_ratio_5m", "day_change_pct", "day_high", "day_low", "orb_high", "orb_low"],
         "Fundamentals": ["pe", "pb", "roe", "debt_to_equity", "revenue_growth", "earnings_growth", "profit_margin", "market_cap_cr"],
         "Options": ["spot", "days_to_expiry", "pcr_oi", "max_pain", "atm_iv", "call_wall", "put_wall"],
+        "IPO": ipo.METRICS,
         "Market": ["nifty", "nifty_change_pct", "nifty_30d_pct", "nifty_pe", "vix", "vix_change_pct", "nifty_adv_dec",
                    "fii_net_cr", "dii_net_cr"],
     }
@@ -279,6 +281,8 @@ def option_metrics(symbol):
         "spot": (r.get("CE") or r.get("PE"))["underlyingValue"],
     } for r in rows])
     spot = chain["spot"].iloc[0]
+    if not spot or spot <= 0:  # NSE sometimes answers cloud servers / off-hours with a zeroed chain; strikes are unusable then
+        raise ValueError("NSE returned the option chain without an underlying price; try again in a moment")
     k = chain["strike"]
     # max pain: strike where total option-writer payout is smallest
     pain = [(chain["ce_oi"] * (s - k).clip(lower=0) + chain["pe_oi"] * (k - s).clip(lower=0)).sum() for s in k]

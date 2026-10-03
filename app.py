@@ -20,7 +20,7 @@ import views
 st.set_page_config(page_title="Trade Advisor", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 st.html(views.CSS)
 
-QUICK = ["NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "INFY", "SBIN"]
+QUICK = ["NIFTY 50", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "INFY", "SBIN"]
 OPS = ["<", "<=", ">", ">=", "==", "between"]
 fmt = views.fmt
 
@@ -46,7 +46,7 @@ def get_candles(symbol, exchange, settings_key, vatsal_mode):  # settings_key bu
 PERSIST = ("symbol", "exchange", "vatsal_mode", "advisors", "use_llm", "min_rr", "capital", "risk_pct", "opp_uni", "opp_dir",
            "opp_opts", "strat_preset", "strat_w", "strat_lots", "mkt_pick", "mkt_group", "sec_rel", "ev_fo", "brief_uni",
            "brief_rr", "brief_cap", "sc_strike", "sc_kind", "bt_sym", "bt_adv", "bt_period", "bt_exch", "bt_long", "bt_short",
-           "bt_stop", "bt_target", "bt_cost", "bt_shorts")
+           "bt_stop", "bt_target", "bt_cost", "bt_shorts", "ipo_kind")
 for k in PERSIST:
     if k in st.session_state:
         st.session_state[k] = st.session_state[k]
@@ -62,8 +62,8 @@ def left_tab():
 
 
 topbar = st.empty()  # filled at the end, once this run's analysis (if any) is done
-tab_an, tab_opp, tab_str, tab_bt, tab_mkt, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
-    ["Analyze", "Opportunities", "Strategies", "Backtest", "Market", "Brief", "Journal", "Rules", "Indicators"],
+tab_an, tab_opp, tab_str, tab_bt, tab_mkt, tab_ipo, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
+    ["Analyze", "Opportunities", "Strategies", "Backtest", "Market", "IPO", "Brief", "Journal", "Rules", "Indicators"],
     key="main_tab", on_change=left_tab)
 
 
@@ -103,7 +103,7 @@ if tab_an.open:
                               help="Your TradingView setup: EMA 5/13/50/200, EMA 200 filter, 50/200 cross, pivots, fib, "
                                    "supply/demand and liquidity zones, plus the vatsal advisors.")
             use_llm = c2.toggle("AI summary (Groq)", value=True, key="use_llm")
-            names = [n for n in advisor.RULES if vmode or not is_vatsal(n)]
+            names = [n for n in advisor.RULES if (vmode or not is_vatsal(n)) and n != "ipo"]
             if "advisors" in st.session_state:  # drop advisors deleted on the Rules tab or hidden by the toggle
                 st.session_state.advisors = [a for a in st.session_state.advisors if a in names]
             chosen = c1.pills("Advisors", names, selection_mode="multi", default=names, key="advisors",
@@ -472,7 +472,7 @@ if tab_ind.open:
 for tab, render in [(tab_opp, lambda: tabs.opportunities_tab(st.session_state.get("vatsal_mode", False))),
                     (tab_str, lambda: tabs.strategies_tab(st.session_state.get("result"))),
                     (tab_bt, lambda: tabs.backtest_tab(advisor.RULES, st.session_state.get("vatsal_mode", False))),
-                    (tab_mkt, tabs.market_tab), (tab_br, tabs.brief_tab), (tab_jr, tabs.journal_tab)]:
+                    (tab_mkt, tabs.market_tab), (tab_ipo, lambda: tabs.ipo_tab(advisor.RULES)), (tab_br, tabs.brief_tab), (tab_jr, tabs.journal_tab)]:
     if tab.open:
         with tab:
             render()

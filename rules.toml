@@ -58,3 +58,10 @@ BUY = [["sig_resistance_break", "==", 1], ["sig_macd_above_signal", "==", 1], ["
 SELL = [["sig_support_break", "==", 1], ["sig_macd_below_signal", "==", 1], ["rsi", ">", 30]]
 BULLISH = [["sig_score", ">=", 3]]
 BEARISH = [["sig_score", "<=", -3]]
+
+# IPO advisor (ipo.py): judged on IPO metrics only (GMP, subscription, financials). Placeholder rules: replace with yours.
+# Subscription grows until the last day, so an early verdict can change. GMP is an unofficial grey-market quote.
+[ipo]
+default = "NEUTRAL"
+APPLY = [["ipo_gmp_pct", ">=", 15], ["ipo_sub_total", ">=", 10], ["ipo_sub_qib", ">=", 10], ["ipo_roe", ">=", 15], ["ipo_debt_equity", "<=", 1]]
+AVOID = [["ipo_gmp_pct", "<=", 0]]

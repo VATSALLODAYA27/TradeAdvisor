@@ -272,7 +272,7 @@ def tone(label):
         return "t-flat"
     if re.search(r"PREMIUM|HEDGE|WATCH", label):
         return "t-warn"
-    if re.search(r"BUY|BULL", label):
+    if re.search(r"BUY|BULL|APPLY", label):
         return "t-up"
     if re.search(r"SELL|BEAR", label):
         return "t-down"
