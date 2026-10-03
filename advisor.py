@@ -74,6 +74,7 @@ def unknown_metrics(rules):
 
 
 RULES = load_rules(RULES_FILE.read_text())
+OWN_TAB = ("ipo", "mutual_fund")  # these judge IPOs / funds on their own tabs, not a stock
 
 
 def check(rule, m):

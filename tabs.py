@@ -10,6 +10,7 @@ import history
 import ipo
 import journal
 import market
+import mf
 import scanner
 import strategies
 from setups import years_to
@@ -286,7 +287,8 @@ def backtest_tab(rules, vmode):
     with st.container(key="panel-bt"):
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
         sym = c1.text_input("Symbol", st.session_state.get("symbol", "RELIANCE"), key="bt_sym").strip().upper()
-        name = c2.selectbox("Advisor (rules.toml section)", list(rules), index=list(rules).index("swing") if "swing" in rules else 0, key="bt_adv")
+        names = [n for n in rules if n not in advisor.OWN_TAB]
+        name = c2.selectbox("Advisor (rules.toml section)", names, index=names.index("swing") if "swing" in names else 0, key="bt_adv")
         period = c3.selectbox("History", ["2y", "3y", "5y", "10y"], index=1, key="bt_period",
                               help="The first 200 candles only warm up the indicators; trades start after them.")
         exch = c4.selectbox("Exchange", ["NSE", "BSE"], key="bt_exch")
@@ -363,13 +365,61 @@ def _x(v):
     return "—" if v is None else f"{v:,.2f}×"
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _listed(days):
+    return ipo.listed(days)
+
+
+def listed_view(kind):
+    days = st.select_slider("Listed in the last", [30, 60, 90, 180, 365], value=90, key="ipo_days", format_func=lambda d: f"{d} days")
+    try:
+        with st.spinner("Fetching listings and prices…"):
+            df = _listed(days)
+    except Exception as ex:
+        st.warning(f"NSE didn't respond ({type(ex).__name__}). Try again in a moment.")
+        return
+    if kind != "All" and not df.empty:
+        df = df[df["type"] == kind]
+    if df.empty:
+        st.info("No listings in this window.")
+        return
+    priced = df.dropna(subset=["listing_gain_pct"])
+    if len(priced):
+        s = priced["listing_gain_pct"]
+        kpis = [("IPOs listed", len(df), ""), ("Listed at a premium", f"{(s > 0).mean() * 100:.0f}%", ""),
+                ("Avg listing gain", f"{s.mean():+.2f}%", "up" if s.mean() > 0 else "down"),
+                ("Avg return since issue", f"{priced['return_pct'].mean():+.2f}%", "up" if priced["return_pct"].mean() > 0 else "down")]
+        st.html('<section class="panel"><div class="kpis" style="grid-template-columns:repeat(4,1fr)">' + "".join(
+            f'<div><span>{k}</span><b class="{c}">{v}</b></div>' for k, v, c in kpis) + "</div></section>")
+        top = pd.concat([priced.nlargest(8, "return_pct"), priced.nsmallest(8, "return_pct")]).drop_duplicates("symbol")
+        top = top.sort_values("return_pct")
+        fig = go.Figure(go.Bar(x=top["return_pct"], y=top["company"], orientation="h",
+                               marker_color=[UP if v > 0 else DOWN for v in top["return_pct"]],
+                               text=[f"{v:+.1f}%" for v in top["return_pct"]], textposition="outside"))
+        fig.update_layout(**{**CHART_LAYOUT, "height": 32 * len(top) + 90}, title="Best and worst: return from issue price to today")
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    st.dataframe(df, hide_index=True, width="stretch", column_config={
+        "listed": st.column_config.DateColumn("Listed"), "issue_price": st.column_config.NumberColumn("Issue ₹", format="%.0f"),
+        "listing_open": st.column_config.NumberColumn("Listing open ₹", format="%.2f"),
+        "listing_gain_pct": st.column_config.NumberColumn("Listing gain %", format="%+.2f"),
+        "day1_close_pct": st.column_config.NumberColumn("Day-1 close %", format="%+.2f"),
+        "price": st.column_config.NumberColumn("Now ₹", format="%.2f"), "return_pct": st.column_config.NumberColumn("Since issue %", format="%+.2f")})
+    missing = df["price"].isna().sum()
+    st.caption("Listing gain = listing-day open vs issue price. Prices from Yahoo"
+               + (f"; {missing} listings (mostly SME) have no Yahoo data." if missing else "."))
+
+
 def ipo_tab(rules):
     st.html('<div class="sec">IPOs<span class="muted">open and upcoming issues from NSE · GMP and financials from ipowatch.in · '
             'verdicts from the [ipo] section of your rules</span></div>')
-    c1, c2, _ = st.columns([2.2, 1, 3], vertical_alignment="bottom")
+    c0, c1, c2, _ = st.columns([2.2, 2.2, 1, 1.5], vertical_alignment="bottom")
+    view = c0.segmented_control("View", ["Open & upcoming", "Recently listed"], default="Open & upcoming", key="ipo_view") or "Open & upcoming"
     kind = c1.segmented_control("Show", ["Mainboard", "SME", "All"], default="Mainboard", key="ipo_kind") or "Mainboard"
-    if c2.button("Refresh", help="Data is cached for 10 minutes"):
+    if c2.button("Refresh", help="Data is cached for 10-30 minutes"):
         _ipos.clear()
+        _listed.clear()
+    if view == "Recently listed":
+        return listed_view(kind)
     try:
         with st.spinner("Fetching IPOs, GMP and financials…"):
             xs = _ipos()
@@ -460,6 +510,145 @@ def ipo_tab(rules):
             f'guarantee. Financials are from the prospectus as summarised by ipowatch.in; check the RHP before applying.</p>')
     if x["errors"]:
         st.caption("Unavailable: " + "; ".join(f"{k} ({val})" for k, val in x["errors"].items()))
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _funds():
+    return mf.funds()
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _rank(category, plan, bench):
+    f = _funds()
+    return mf.rank(f[(f["category"] == category) & (f["plan"] == plan)], bench)
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _nav(code):
+    return mf.nav(code)
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _bench(name):
+    return mf.benchmark(name)
+
+
+MF_SORT = {"3-year return": "mf_cagr_3y", "1-year return": "mf_ret_1y", "5-year return": "mf_cagr_5y",
+           "Beat benchmark by (3y)": "mf_excess_3y", "Sharpe (3y)": "mf_sharpe_3y", "Lowest drawdown (3y)": "mf_max_dd_3y"}
+MF_COLS = {"mf_ret_1y": "1y %", "mf_cagr_3y": "3y CAGR %", "mf_cagr_5y": "5y CAGR %", "mf_excess_3y": "vs bench 3y (pp)",
+           "mf_sharpe_3y": "Sharpe", "mf_sortino_3y": "Sortino", "mf_vol_3y": "Volatility %", "mf_max_dd_3y": "Max drawdown %",
+           "mf_beta_3y": "Beta", "mf_alpha_3y": "Alpha %", "mf_age_years": "Age (yrs)"}
+
+
+def _mf_table(rows, section):
+    out = []
+    for r in rows:
+        v = advisor.verdict(section, r["metrics"])["verdict"] if section else "—"
+        out.append({"fund": r["name"], "verdict": v, **{MF_COLS[k]: r["metrics"][k] for k in MF_COLS}})
+    return pd.DataFrame(out).astype({c: float for c in MF_COLS.values()})
+
+
+def _cat_changed():
+    st.session_state.mf_bench = mf.default_benchmark(st.session_state.mf_cat)
+
+
+def mf_tab(rules):
+    st.html('<div class="sec">Mutual funds<span class="muted">every scheme from AMFI · NAV history from mfapi.in · '
+            'rank a category, compare funds with benchmarks · verdicts from the [mutual_fund] section of your rules</span></div>')
+    try:
+        with st.spinner("Loading the AMFI scheme list…"):
+            funds = _funds()
+    except Exception as ex:
+        st.warning(f"AMFI didn't respond ({type(ex).__name__}). Try again in a moment.")
+        return
+    section = rules.get("mutual_fund")
+    cats = sorted(funds["category"].unique())
+    st.session_state.setdefault("mf_cat", "Equity · Flexi Cap" if "Equity · Flexi Cap" in cats else cats[0])
+    st.session_state.setdefault("mf_bench", mf.default_benchmark(st.session_state.mf_cat))
+    with st.container(key="panel-mf"):
+        c1, c2, c3, c4 = st.columns([2.2, 1.2, 2, 1.6], vertical_alignment="bottom")
+        cat = c1.selectbox("Category", cats, key="mf_cat", on_change=_cat_changed)
+        plan = c2.segmented_control("Plan", ["Direct", "Regular"], default="Direct", key="mf_plan") or "Direct"
+        bench = c3.selectbox("Benchmark", list(mf.BENCHMARKS), key="mf_bench",
+                             help="Price indices exclude dividends, so funds look ~1-1.5%/yr better than against the TRI on their factsheets.")
+        sort = c4.selectbox("Rank by", list(MF_SORT), key="mf_sort")
+    pool = funds[(funds["category"] == cat) & (funds["plan"] == plan)]
+    key, top = (cat, plan, bench), []
+    done = st.session_state.setdefault("mf_ranked", [])
+    if key not in done:
+        secs = max(5, len(pool) * 0.7)
+        if st.button(f"Rank {len(pool)} {plan.lower()} funds in {cat} (about {secs:.0f}s the first time, then cached for 6 hours)", type="primary"):
+            done.append(key)
+            st.rerun()
+        st.html('<div class="empty">Pick a category and click <b>Rank</b>: every fund is measured from its NAV history '
+                'against the benchmark, then judged by your [mutual_fund] rules.</div>')
+    else:
+        with st.spinner(f"Ranking {len(pool)} funds…"):
+            rows = _rank(cat, plan, bench)
+        col = MF_SORT[sort]
+        rows = [r for r in rows if r["metrics"][col] is not None]
+        rows.sort(key=lambda r: r["metrics"][col], reverse=True)
+        if not rows:
+            st.info(f"No fund in {cat} has enough history for '{sort}'. Try a shorter period.")
+        else:
+            bench_val = {"mf_ret_1y": 1, "mf_cagr_3y": 3, "mf_cagr_5y": 5}.get(col)
+            b = mf.cagr(_bench(bench), bench_val) if bench_val else None
+            best, worst = rows[:5], rows[-5:][::-1] if len(rows) > 5 else []
+            show = best + [r for r in worst if r not in best]
+            show = sorted(show, key=lambda r: r["metrics"][col])
+            top = [r["name"] for r in rows[:3]]
+            if st.session_state.get("mf_cmp_for") != key:  # a fresh ranking: compare its leaders, not the old picks
+                st.session_state.mf_cmp, st.session_state.mf_cmp_for = top, key
+            fig = go.Figure(go.Bar(x=[r["metrics"][col] for r in show], y=[r["name"][:48] for r in show], orientation="h",
+                                   marker_color=[UP if r in best else DOWN for r in show],
+                                   text=[f"{r['metrics'][col]:.2f}" for r in show], textposition="outside"))
+            if b is not None:
+                fig.add_vline(x=b, line_dash="dot", line_color=MUTED, annotation_text=f"{bench} {b:.2f}%")
+            fig.update_layout(**{**CHART_LAYOUT, "height": 34 * len(show) + 90},
+                              title=f"Top 5 and bottom 5 of {len(rows)} by {sort.lower()}")
+            st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+            df = _mf_table(rows, section)
+            pct = {c: st.column_config.NumberColumn(c, format="%.2f") for c in MF_COLS.values()}
+            st.dataframe(df, hide_index=True, width="stretch", column_config=pct, height=min(38 * (len(df) + 1), 560))
+            counts = df["verdict"].value_counts().to_dict()
+            st.caption(f"Sorted by {sort.lower()}. Verdicts: " + ", ".join(f"{k} {v}" for k, v in counts.items())
+                       + ". pp = percentage points above the benchmark's return over the same 3 years.")
+
+    st.html('<div class="sec">Compare<span class="muted">growth of ₹10,000 from the latest date all picks existed · '
+            'any funds, any categories, plus benchmarks</span></div>')
+    names = funds[funds["plan"] == plan].drop_duplicates("name").set_index("name")["code"]
+    in_cat = [n for n in pool["name"] if n in names.index]
+    c1, c2, c3 = st.columns([3, 2, 1.4], vertical_alignment="bottom")
+    picks = c1.multiselect("Funds (up to 5)", list(names.index), default=(top or in_cat)[:3], max_selections=5, key="mf_cmp")
+    benches = c2.multiselect("Benchmarks", list(mf.BENCHMARKS), default=[bench], key="mf_cmp_bench")
+    period = c3.segmented_control("Period", ["1Y", "3Y", "5Y", "Max"], default="3Y", key="mf_period") or "3Y"
+    if not picks and not benches:
+        return
+    try:
+        with st.spinner("Fetching NAV history…"):
+            series = {n: _nav(int(names[n])) for n in picks} | {f"▸ {b}": _bench(b) for b in benches}
+    except Exception as ex:
+        st.warning(f"Couldn't fetch NAV history ({type(ex).__name__}).")
+        return
+    g = mf.growth(series, None if period == "Max" else int(period[0]))
+    fig = go.Figure()
+    for i, (n, s) in enumerate(g.items()):
+        is_b = n.startswith("▸")
+        fig.add_trace(go.Scatter(x=s.index, y=s, name=n[:50], line=dict(width=1.5 if is_b else 2.2, dash="dot" if is_b else "solid")))
+    start = min(s.index[0] for s in g.values())
+    youngest = max(series, key=lambda n: series[n].index[0])
+    if period != "Max" and series[youngest].index[0] > max(s.index[-1] for s in g.values()) - pd.DateOffset(years=int(period[0])):
+        st.caption(f"The chart starts {start:%d %b %Y}, when {youngest} began, so every line is measured over the same days.")
+    fig.update_layout(**{**CHART_LAYOUT, "height": 420}, title=f"Growth of ₹10,000 since {start:%d %b %Y}", hovermode="x unified",
+                      legend=dict(orientation="h", y=-0.2), yaxis_title="₹")
+    st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    b0 = _bench(bench)
+    rows = [{"name": n, "metrics": mf.metrics(series[n], b0)} for n in picks]
+    if rows:
+        st.dataframe(_mf_table(rows, section), hide_index=True, width="stretch",
+                     column_config={c: st.column_config.NumberColumn(c, format="%.2f") for c in MF_COLS.values()})
+    st.caption(f"Metrics are vs {bench}. Past returns don't predict future returns. Expense ratio, AUM and holdings are not "
+               "in these free sources; check the factsheet before investing.")
 
 
 def brief_tab():

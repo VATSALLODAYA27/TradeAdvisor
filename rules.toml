@@ -65,3 +65,10 @@ BEARISH = [["sig_score", "<=", -3]]
 default = "NEUTRAL"
 APPLY = [["ipo_gmp_pct", ">=", 15], ["ipo_sub_total", ">=", 10], ["ipo_sub_qib", ">=", 10], ["ipo_roe", ">=", 15], ["ipo_debt_equity", "<=", 1]]
 AVOID = [["ipo_gmp_pct", "<=", 0]]
+
+# Mutual fund advisor (mf.py): judged on mf_* metrics from NAV history vs the chosen benchmark. Placeholder rules: replace.
+# mf_excess_* = fund return minus benchmark return (percentage points); risk figures use the last 3 years.
+[mutual_fund]
+default = "NEUTRAL"
+INVEST = [["mf_excess_3y", ">=", 2], ["mf_sharpe_3y", ">=", 0.4], ["mf_max_dd_3y", ">=", -25], ["mf_age_years", ">=", 3]]
+AVOID = [["mf_excess_3y", "<", 0]]

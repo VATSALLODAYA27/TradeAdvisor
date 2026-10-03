@@ -149,6 +149,37 @@ def one(row, gmps):
     return {"row": row, "gmp": gmp, "sub": sub, "page": pg, "metrics": metrics(row, gmp, sub, pg), "errors": errors}
 
 
+def listed(days=90):
+    """IPOs listed on NSE in the last `days`: issue price vs listing-day open/close and the latest close (Yahoo)."""
+    today = datetime.now().date()
+    rows = []
+    for r in nse("public-past-issues"):
+        if r.get("securityType") not in ("EQ", "BE", "SME") or r.get("listingDate") in (None, "-") or not num(r.get("issuePrice")):
+            continue
+        day = datetime.strptime(r["listingDate"], "%d-%b-%Y").date()
+        if (today - day).days <= days:
+            rows.append({"company": r.get("company") or r.get("companyName"), "symbol": r["symbol"],
+                         "type": "SME" if r["securityType"] == "SME" else "Mainboard", "listed": day, "issue_price": num(r["issuePrice"])})
+    if not rows:
+        return pd.DataFrame()
+    import yfinance as yf
+    tickers = [f"{r['symbol']}.NS" for r in rows]
+    px = yf.download(tickers, start=min(r["listed"] for r in rows), group_by="ticker", auto_adjust=False, progress=False, threads=True)
+    for r in rows:
+        try:
+            d = (px[f"{r['symbol']}.NS"] if len(tickers) > 1 else px).dropna(subset=["Close"])
+            d = d[d.index.date >= r["listed"]]
+        except KeyError:
+            d = pd.DataFrame()
+        if d.empty:  # Yahoo doesn't carry every SME stock
+            continue
+        ip = r["issue_price"]
+        r |= {"listing_open": float(d["Open"].iloc[0]), "listing_gain_pct": round((d["Open"].iloc[0] / ip - 1) * 100, 2),
+              "day1_close_pct": round((d["Close"].iloc[0] / ip - 1) * 100, 2), "price": float(d["Close"].iloc[-1]),
+              "return_pct": round((d["Close"].iloc[-1] / ip - 1) * 100, 2)}
+    return pd.DataFrame(rows).sort_values("listed", ascending=False).reset_index(drop=True)
+
+
 def all_ipos():
     """[one(...)] for every open/upcoming IPO, fetched in parallel. GMP failing still returns the NSE list."""
     rows = listing()

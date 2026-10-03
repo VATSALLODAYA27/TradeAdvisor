@@ -165,7 +165,8 @@ def all_emas(s):
 
 def metric_names(s):
     """Every metric key collect() can produce with these settings (for the rule builder's suggestions)."""
-    import ipo  # ipo imports this module
+    import ipo  # ipo and mf import this module
+    import mf
     ind = [*(f"ema_{n}" for n in all_emas(s)), *(f"sma_{n}" for n in s["sma"]), "rsi", "macd", "macd_signal", "macd_hist",
            "atr", "atr_pct", "bb_upper", "bb_mid", "bb_lower", "bb_pct_b", "supertrend", "supertrend_dir", "vol_ratio"]
     return {
@@ -181,6 +182,7 @@ def metric_names(s):
         "Fundamentals": ["pe", "pb", "roe", "debt_to_equity", "revenue_growth", "earnings_growth", "profit_margin", "market_cap_cr"],
         "Options": ["spot", "days_to_expiry", "pcr_oi", "max_pain", "atm_iv", "call_wall", "put_wall"],
         "IPO": ipo.METRICS,
+        "Mutual funds": mf.METRICS,
         "Market": ["nifty", "nifty_change_pct", "nifty_30d_pct", "nifty_pe", "vix", "vix_change_pct", "nifty_adv_dec",
                    "fii_net_cr", "dii_net_cr"],
     }
