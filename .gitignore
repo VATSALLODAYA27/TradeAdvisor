@@ -12,3 +12,6 @@ briefs/
 # Local Claude Code config (machine-specific paths)
 .claude/
 *.mp4
+
+# API keys (Streamlit secrets file, if you make one locally)
+.streamlit/secrets.toml
