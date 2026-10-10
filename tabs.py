@@ -19,7 +19,7 @@ import orderblock
 import scanner
 import strategies
 from setups import years_to
-from views import chart, e, fmt, ob_levels, tone, verdicts, xray_board
+from views import chart, e, fmt, ob_levels, tone, verdicts, xray_board, xray_map
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -151,7 +151,15 @@ def orderblock_tab():
     if df.empty:
         st.warning("No candle data came back. Try again in a moment.")
         return
-    st.html(xray_board(df))
+    try:
+        industry = market.industries()
+    except Exception:
+        industry = {}
+    stocks = [{"s": r.symbol, "side": r.side, "strength": int(r.strength), "chg": r.change_pct, "path": r.path,
+               "sector": industry.get(r.symbol, "Others")} for r in df.itertuples()]
+    components.html(xray_map(stocks), height=690)
+    with st.expander("Full ranking: every stock, strongest first"):
+        st.html(xray_board(df, top=len(df)))
     st.caption("Strength = today's move in ATRs × efficiency (net move ÷ distance travelled), so a straight 1-ATR move outranks a "
                "whipsaw 2% one. Choppy = efficiency under 0.25 or a move under 0.3 ATR. Yahoo candles lag a few minutes; "
                "the board refreshes every 5 minutes.")

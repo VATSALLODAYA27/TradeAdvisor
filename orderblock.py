@@ -93,12 +93,13 @@ def xray(d, swing=SWING):
     price = float(d["Close"].iloc[-1])
     change = (price / prev - 1) * 100
     path = np.concatenate([[prev], d["Close"].to_numpy()[day == day[-1]]])  # yesterday's close through today's bars
+    pct = [round(float(x), 2) for x in (path / prev - 1) * 100]
     travelled = float(np.abs(np.diff(path)).sum())
     eff = abs(price - prev) / travelled if travelled else 0.0
     move = change / atr_pct if atr_pct else 0.0
     side = "Choppy" if eff < CHOPPY_EFF or abs(move) < MIN_MOVE else "Bullish" if move > 0 else "Bearish"
     return {"side": side, "strength": round(abs(move) * eff * 100), "change_pct": round(change, 2), "move_atr": round(move, 2),
-            "efficiency": round(eff, 2), "atr_pct": round(atr_pct, 2), **levels(d, swing)}
+            "efficiency": round(eff, 2), "atr_pct": round(atr_pct, 2), "path": pct, **levels(d, swing)}
 
 
 def scan(symbols):

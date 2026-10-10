@@ -627,6 +627,148 @@ def ob_levels(r):
                       for k, v, c in cells) + "</div></section>")
 
 
+XRAY = """<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;background:transparent;color:#e6ebf5;font:12px Inter,system-ui,sans-serif}
+.wrap{background:rgba(15,22,38,.82);border:1px solid #1e2a42;border-radius:12px;padding:14px}
+.mono,.counts,.sec b,.card b,.card i,.card span{font-family:'JetBrains Mono',monospace}
+.top{display:flex;align-items:center;gap:16px}
+#strip{flex:1;height:90px;min-width:0}
+.counts{display:grid;grid-template-columns:auto auto;gap:2px 10px;align-items:baseline;font-size:11px;color:#7d8aa5}
+.counts b{font-size:18px;text-align:right}
+.body{display:grid;grid-template-columns:190px minmax(0,1fr) 320px;gap:12px;margin-top:10px;height:540px}
+.col{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a3a58 transparent}
+.sec{padding:5px 8px;border:1px solid #1e2a42;border-radius:6px;background:#0b1220;margin-bottom:5px;cursor:default}
+.sec div{display:flex;justify-content:space-between;gap:6px}
+.sec span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase;font-size:10px;letter-spacing:.04em;color:#c3cbdc}
+.sec b{font-size:11px}.sec u,.card u{display:block;height:3px;border-radius:2px;margin-top:4px;text-decoration:none}
+.sec:hover,.card:hover{border-color:#3b82f6}
+#lines{width:100%;height:100%;display:block}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-content:start}
+.cards h4{grid-column:1/-1;margin:4px 0 0;font:600 10px Inter,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#7d8aa5}
+.card{border:1px solid #1e2a42;border-left-width:3px;border-radius:6px;padding:6px 8px;background:#0b1220;cursor:default;min-width:0}
+.card b{font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card i{float:right;font-style:normal;font-size:10px;font-weight:700;border:1px solid;border-radius:4px;padding:0 4px}
+.card span{font-size:11px}
+.up{color:#16c784}.down{color:#ea3943}
+#tip{position:fixed;pointer-events:none;display:none;background:#131c2f;border:1px solid #2a3a58;border-radius:6px;padding:4px 8px;font:600 11px 'JetBrains Mono',monospace;white-space:nowrap;z-index:9}
+.hint{color:#7d8aa5;font-size:11px;margin-top:8px}
+@media (max-width:900px){.body{grid-template-columns:1fr;height:auto}.col{max-height:220px}#lines{height:360px}}
+</style></head><body><section class="wrap">
+<div class="top"><svg id="strip"></svg><div class="counts" id="counts"></div></div>
+<div class="body"><div class="col" id="sectors"></div><svg id="lines"></svg><div class="col cards" id="cards"></div></div>
+<div class="hint">Lines: each stock's % change from yesterday's close through today's 15-minute candles. Bars on the right: strength. Hover a sector, card or line to trace it.</div>
+</section><div id="tip"></div>
+<script>
+const S = __DATA__, UP = '#16c784', DOWN = '#ea3943', NS = 'http://www.w3.org/2000/svg';
+const col = s => s.chg >= 0 ? UP : DOWN, pct = v => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+const el = (tag, attrs, parent) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); parent.appendChild(n); return n; };
+const tip = document.getElementById('tip');
+let focus = null;  // predicate over stocks, or null
+
+function strip() {
+  const svg = document.getElementById('strip'), W = svg.clientWidth, H = svg.clientHeight, mid = H / 2;
+  svg.innerHTML = '';
+  const m = Math.max(1, ...S.map(s => Math.abs(s.chg))), bins = Math.max(20, Math.floor(W / 8)), stack = {};
+  el('line', {x1: 0, x2: W, y1: mid, y2: mid, stroke: '#2a3a58'}, svg);
+  for (const [v, a] of [[-m, 'start'], [0, 'middle'], [m, 'end']])
+    el('text', {x: (v + m) / (2 * m) * W, y: H - 2, fill: '#7d8aa5', 'font-size': 10, 'text-anchor': a}, svg).textContent = pct(v);
+  for (const s of [...S].sort((a, b) => Math.abs(a.chg) - Math.abs(b.chg))) {
+    const b = Math.min(bins - 1, Math.floor((s.chg + m) / (2 * m) * bins)), up = s.chg >= 0, k = b + (up ? 'u' : 'd');
+    const n = stack[k] = (stack[k] || 0) + 1;
+    const c = el('circle', {cx: (b + .5) / bins * W, cy: mid + (up ? -1 : 1) * (n * 6 - 1), r: 2.6, fill: col(s), opacity: s.side === 'Choppy' ? .45 : .95}, svg);
+    c.dataset.s = s.s;
+  }
+  const n = side => S.filter(s => s.side === side).length;
+  document.getElementById('counts').innerHTML = `<span>BULLISH</span><b class="up">${n('Bullish')}</b><span>BEARISH</span><b class="down">${n('Bearish')}</b><span>CHOPPY</span><b>${n('Choppy')}</b>`;
+}
+
+function sectors() {
+  const by = {};
+  for (const s of S) (by[s.sector] = by[s.sector] || []).push(s);
+  const rows = Object.entries(by).map(([name, xs]) => ({name, n: xs.length, chg: xs.reduce((a, s) => a + s.chg, 0) / xs.length,
+    adv: xs.filter(s => s.chg >= 0).length})).sort((a, b) => b.chg - a.chg);
+  const box = document.getElementById('sectors');
+  box.innerHTML = rows.map(r => `<div class="sec" data-name="${r.name}" title="${r.name}: ${r.adv} of ${r.n} up"><div><span>${r.name}</span>` +
+    `<b class="${r.chg >= 0 ? 'up' : 'down'}">${pct(r.chg)}</b></div><u style="background:linear-gradient(90deg,${UP} ${r.adv / r.n * 100}%,${DOWN} 0)"></u></div>`).join('');
+  box.querySelectorAll('.sec').forEach(n => { n.onmouseenter = () => setFocus(s => s.sector === n.dataset.name); n.onmouseleave = () => setFocus(null); });
+}
+
+function cards() {
+  const top = side => S.filter(s => s.side === side).sort((a, b) => b.strength - a.strength).slice(0, 10);
+  const max = Math.max(1, ...S.map(s => s.strength));
+  const card = s => `<div class="card" data-s="${s.s}" style="border-left-color:${col(s)}"><i style="color:${col(s)}">${s.strength}</i><b>${s.s}</b>` +
+    `<span class="${s.chg >= 0 ? 'up' : 'down'}">${pct(s.chg)}</span><u style="background:${col(s)};width:${Math.max(4, s.strength / max * 100)}%"></u></div>`;
+  const box = document.getElementById('cards');
+  box.innerHTML = [['Strongest bullish', 'Bullish'], ['Strongest bearish', 'Bearish']].map(([h, side]) =>
+    `<h4>${h}</h4>` + (top(side).map(card).join('') || '<span class="hint">none right now</span>')).join('');
+  box.querySelectorAll('.card').forEach(n => { n.onmouseenter = () => setFocus(s => s.s === n.dataset.s); n.onmouseleave = () => setFocus(null); });
+}
+
+let geo = null;
+function lines() {
+  const svg = document.getElementById('lines'), W = svg.clientWidth, H = svg.clientHeight;
+  svg.innerHTML = '';
+  const L = 46, R = 96, T = 10, B = 20, n = Math.max(2, ...S.map(s => s.path.length));
+  const all = S.flatMap(s => s.path), lo = Math.min(0, ...all), hi = Math.max(0, ...all), pad = (hi - lo) * .04 || 1;
+  const x = i => L + i / (n - 1) * (W - L - R), y = v => T + (hi + pad - v) / (hi - lo + 2 * pad) * (H - T - B);
+  const step = [0.25, 0.5, 1, 2, 5, 10].find(s => (hi - lo) / s <= 9) || 20;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    el('line', {x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: Math.abs(v) < 1e-9 ? '#3b4a68' : 'rgba(30,42,66,.6)'}, svg);
+    el('text', {x: L - 6, y: y(v) + 3, fill: '#7d8aa5', 'font-size': 10, 'text-anchor': 'end', 'font-family': 'JetBrains Mono'}, svg).textContent = pct(v);
+  }
+  for (let i = 1; i < n; i += 4) {  // bar 0 is yesterday's close; bar 1 closes at 09:30
+    const t = 555 + i * 15;
+    el('text', {x: x(i), y: H - 5, fill: '#7d8aa5', 'font-size': 10, 'text-anchor': 'middle', 'font-family': 'JetBrains Mono'}, svg)
+      .textContent = String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+  }
+  const max = Math.max(1, ...S.map(s => s.strength));
+  el('text', {x: W - R + 8, y: T + 2, fill: '#7d8aa5', 'font-size': 9, 'letter-spacing': 1}, svg).textContent = 'STRENGTH';
+  const g = el('g', {id: 'paths'}, svg);
+  for (const s of [...S].sort((a, b) => a.strength - b.strength)) {  // strongest drawn last, on top
+    const last = s.path.length - 1, faint = s.side === 'Choppy';
+    const p = el('polyline', {points: s.path.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' '), fill: 'none', stroke: col(s),
+      'stroke-width': faint ? .7 : 1.1, opacity: faint ? .25 : .6, 'stroke-linejoin': 'round'}, g);
+    const b = el('rect', {x: x(last) + 8, y: y(s.path[last]) - 1, width: Math.max(1, s.strength / max * (R - 14)), height: 2, fill: col(s), opacity: faint ? .3 : .8}, g);
+    p.dataset.s = b.dataset.s = s.s;
+  }
+  geo = {x, y, n, L, R, W};
+  svg.onmousemove = ev => {
+    const r = svg.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const i = Math.round((mx - L) / (W - L - R) * (n - 1));
+    let best = null, d = 14;
+    for (const s of S) { const v = s.path[Math.max(0, Math.min(s.path.length - 1, i))], dy = Math.abs(y(v) - my); if (dy < d) { d = dy; best = s; } }
+    if (!best) { tip.style.display = 'none'; return setFocus(null); }
+    setFocus(s => s === best);
+    tip.innerHTML = `${best.s} <span class="${best.chg >= 0 ? 'up' : 'down'}">${pct(best.chg)}</span> · ${best.side} · strength ${best.strength}`;
+    tip.style.display = 'block';
+    tip.style.left = Math.min(ev.clientX + 12, innerWidth - tip.offsetWidth - 8) + 'px'; tip.style.top = (ev.clientY - 28) + 'px';
+  };
+  svg.onmouseleave = () => { tip.style.display = 'none'; setFocus(null); };
+}
+
+function setFocus(pred) {
+  if (!pred && !focus) return;
+  focus = pred;
+  const on = new Set(pred ? S.filter(pred).map(s => s.s) : []);
+  document.querySelectorAll('#paths [data-s], #strip [data-s]').forEach(n => {
+    const hit = on.has(n.dataset.s);
+    n.style.opacity = pred ? (hit ? 1 : .06) : '';
+    if (n.tagName === 'polyline') n.style.strokeWidth = pred && hit ? 2.2 : '';
+  });
+}
+
+function draw() { strip(); sectors(); cards(); lines(); }
+draw(); addEventListener('resize', draw);
+</script></body></html>"""
+
+
+def xray_map(stocks):
+    """The market map: change-% strip, sectors, every stock's intraday path and the strongest names."""
+    return XRAY.replace("__DATA__", json.dumps(stocks))
+
+
 # ---- candlestick chart: TradingView lightweight-charts inside a component iframe ----
 
 CHART = """<!doctype html><html><head><meta charset="utf-8">

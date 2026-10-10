@@ -95,6 +95,19 @@ def events(days=30):
             .sort_values(["when", "symbol"], ignore_index=True))
 
 
+_INDUSTRY = {}
+
+
+def industries():
+    """{symbol: industry} from NSE's NIFTY 500 list (cached). Stocks outside the index are simply missing."""
+    if not _INDUSTRY:
+        r = NSE.get("https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv", timeout=10)
+        r.raise_for_status()
+        df = pd.read_csv(io.StringIO(r.text))
+        _INDUSTRY.update(zip(df["Symbol"], df["Industry"]))
+    return _INDUSTRY
+
+
 _LOTS = {}
 
 
