@@ -47,7 +47,7 @@ PERSIST = ("symbol", "exchange", "vatsal_mode", "advisors", "use_llm", "min_rr",
            "opp_opts", "strat_preset", "strat_w", "strat_lots", "mkt_pick", "mkt_group", "sec_rel", "ev_fo", "brief_uni",
            "brief_rr", "brief_cap", "sc_strike", "sc_kind", "bt_sym", "bt_adv", "bt_period", "bt_exch", "bt_long", "bt_short",
            "bt_stop", "bt_target", "bt_cost", "bt_shorts", "ipo_kind", "ipo_view", "ipo_days",
-           "ob_uni", "ob_sym", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period")
+           "ob_uni", "ob_sym", "com_sym", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period")
 for k in PERSIST:
     if k in st.session_state:
         st.session_state[k] = st.session_state[k]
@@ -63,8 +63,8 @@ def left_tab():
 
 
 topbar = st.empty()  # filled at the end, once this run's analysis (if any) is done
-tab_an, tab_opp, tab_ob, tab_str, tab_bt, tab_mkt, tab_ipo, tab_mf, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
-    ["Analyze", "Opportunities", "Order Blocks", "Strategies", "Backtest", "Market", "IPO", "Mutual Funds", "Brief", "Journal", "Rules", "Indicators"],
+tab_an, tab_opp, tab_ob, tab_str, tab_bt, tab_mkt, tab_com, tab_ipo, tab_mf, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
+    ["Analyze", "Opportunities", "Order Blocks", "Strategies", "Backtest", "Market", "Commodities", "IPO", "Mutual Funds", "Brief", "Journal", "Rules", "Indicators"],
     key="main_tab", on_change=left_tab)
 
 
@@ -474,7 +474,8 @@ for tab, render in [(tab_opp, lambda: tabs.opportunities_tab(st.session_state.ge
                     (tab_ob, tabs.orderblock_tab),
                     (tab_str, lambda: tabs.strategies_tab(st.session_state.get("result"))),
                     (tab_bt, lambda: tabs.backtest_tab(advisor.RULES, st.session_state.get("vatsal_mode", False))),
-                    (tab_mkt, tabs.market_tab), (tab_ipo, lambda: tabs.ipo_tab(advisor.RULES)),
+                    (tab_mkt, tabs.market_tab), (tab_com, lambda: tabs.commodity_tab(advisor.RULES)),
+                    (tab_ipo, lambda: tabs.ipo_tab(advisor.RULES)),
                     (tab_mf, lambda: tabs.mf_tab(advisor.RULES)), (tab_br, tabs.brief_tab), (tab_jr, tabs.journal_tab)]:
     if tab.open:
         with tab:

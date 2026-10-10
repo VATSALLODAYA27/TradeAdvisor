@@ -16,6 +16,8 @@ import signals
 import vatsal
 
 INDEX_YF = {"NIFTY": "^NSEI", "BANKNIFTY": "^NSEBANK", "FINNIFTY": "NIFTY_FIN_SERVICE.NS"}
+COMMODITY_YF = {"GOLD": "GC=F", "SILVER": "SI=F", "PLATINUM": "PL=F", "CRUDEOIL": "CL=F", "BRENT": "BZ=F",
+                "NATURALGAS": "NG=F", "COPPER": "HG=F", "ALUMINIUM": "ALI=F"}  # global futures (commodity.py)
 
 NSE = requests.Session()
 NSE.headers.update({
@@ -190,7 +192,7 @@ def metric_names(s):
 
 
 def yf_symbol(symbol, exchange):
-    return INDEX_YF.get(symbol) or f"{symbol}.{'BO' if exchange == 'BSE' else 'NS'}"
+    return INDEX_YF.get(symbol) or COMMODITY_YF.get(symbol) or f"{symbol}.{'BO' if exchange == 'BSE' else 'NS'}"
 
 
 def daily_metrics(symbol, exchange, s):

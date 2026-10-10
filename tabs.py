@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 import advisor
 import backtest
 import brief
+import commodity
 import data
 import history
 import ipo
@@ -19,7 +20,7 @@ import orderblock
 import scanner
 import strategies
 from setups import years_to
-from views import chart, e, fmt, ob_levels, tone, verdicts, xray_board, xray_map
+from views import chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -184,6 +185,75 @@ def orderblock_tab():
     st.caption("Order block = the candle a move started from, once that move closed beyond the previous swing high or low; it "
                "is removed when price closes through it. Liquidity = swing highs / lows not yet traded through. These are "
                "standard price-action definitions on public candles, not exchange order-book data, and not advice.")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _commodities():
+    return commodity.scan()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _com_candles(symbol):
+    def one(iv):
+        try:
+            return iv, data.candles(symbol, "NSE", iv)
+        except Exception:
+            return iv, None
+    with ThreadPoolExecutor(4) as pool:
+        got = dict(pool.map(one, data.CHART))
+    return {iv: c for iv, c in got.items() if c and c["time"]}
+
+
+def commodity_tab(rules):
+    st.html('<div class="sec">Commodities<span class="muted">global futures (COMEX / NYMEX / ICE) from Yahoo, with an '
+            'approximate rupee price · verdicts from the [commodity] section of your rules</span></div>')
+    try:
+        with st.spinner("Loading commodity prices…"):
+            rows, failed = _commodities()
+    except Exception as ex:
+        st.warning(f"Yahoo didn't respond ({type(ex).__name__}). Try again in a moment.")
+        return
+    if not rows:
+        st.warning("No commodity data came back. Try again in a moment.")
+        return
+    section = rules.get("commodity")
+    if not section:
+        st.info("Add a [commodity] section on the Rules tab to get verdicts here.")
+    for r in rows:
+        r["verdict"] = advisor.verdict(section, r["metrics"]) if section else None
+    st.html(commodity_cards(rows))
+    fx = rows[0]["usdinr"]
+    st.caption((f"USD/INR {fx:.2f}. " if fx else "") + "Rupee price = USD price × USD/INR in MCX's unit, before import duty, "
+               "GST and the local premium, so MCX quotes higher (gold and silver most). Yahoo futures quotes lag about 10 minutes.")
+    trend = {1: "Up", -1: "Down", 0: "Flat"}
+    df = pd.DataFrame([{"commodity": r["name"], "price": r["metrics"]["close"], "unit": r["unit"], "approx_inr": r["inr"],
+                        "inr_unit": r["inr_unit"], "1D %": r["metrics"]["change_pct"], "1W %": r["metrics"]["ret_1w"],
+                        "1M %": r["metrics"]["ret_1m"], "3M %": r["metrics"]["ret_3m"], "RSI": r["metrics"]["rsi"],
+                        "trend": trend[r["metrics"]["mtf_1d"]], "from 52w high %": r["metrics"]["pct_from_52w_high"],
+                        "signal score": r["metrics"]["sig_score"], "verdict": r["verdict"]["verdict"] if r["verdict"] else "—"}
+                       for r in rows])
+    st.dataframe(df, hide_index=True, width="stretch", column_config={
+        **{c: st.column_config.NumberColumn(c, format="%+.2f") for c in ["1D %", "1W %", "1M %", "3M %", "from 52w high %"]},
+        "price": st.column_config.NumberColumn("Price (USD)", format="%.2f"), "RSI": st.column_config.NumberColumn("RSI", format="%.1f"),
+        "approx_inr": st.column_config.NumberColumn("≈ ₹", format="%,.2f")})
+
+    st.html('<div class="sec">Study one<span class="muted">chart, the rule checks behind its verdict and its signals</span></div>')
+    by = {r["symbol"]: r for r in rows}
+    if st.session_state.get("com_sym") not in by:
+        st.session_state.pop("com_sym", None)
+    sym = st.selectbox("Commodity", list(by), format_func=lambda k: by[k]["name"], key="com_sym")
+    r = by[sym]
+    candles = _com_candles(sym)
+    if candles:
+        components.html(chart(candles, {}), height=600)
+    else:
+        st.warning("Chart data unavailable right now.")
+    if r["verdict"]:
+        st.html(verdicts({"order": ["commodity"], "verdicts": {"commodity": r["verdict"]}}))
+    st.html(signals_panel(r["metrics"]))
+    if failed:
+        st.caption(f"No data for: {', '.join(failed)}")
+    st.caption("Verdicts come only from your rules. Nothing here places orders. Not investment advice.")
 
 
 @st.cache_data(ttl=60, show_spinner=False)

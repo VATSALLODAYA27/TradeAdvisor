@@ -627,6 +627,26 @@ def ob_levels(r):
                       for k, v, c in cells) + "</div></section>")
 
 
+# ---- commodities tab ----
+
+def commodity_cards(rows):
+    out = []
+    for r in rows:
+        m, v = r["metrics"], (r.get("verdict") or {}).get("verdict")
+        t = tone(v) if v else "t-flat"
+        inr = f'≈ ₹{fmt(r["inr"], 0 if r["inr"] >= 1000 else 2)} <span class="muted">{e(r["inr_unit"][2:])}</span>' if r["inr"] else "—"
+        out.append(
+            f'<article class="panel card {t}"><header><h3>{e(r["name"])}</h3>'
+            + (f'<span class="badge {t}">{e(v.replace("_", " "))}</span>' if v else "") + "</header>"
+            f'<div class="px"><span class="big mono" style="font-size:22px">{fmt(m["close"])}</span>'
+            f'<span class="chg mono {direction(m["change_pct"])}">{signed(m["change_pct"])}</span></div>'
+            f'<div class="muted mono" style="font-size:12px">{e(r["unit"])} · {inr}</div>'
+            f'<div class="levels" style="margin-top:10px;gap:12px"><span>1W<b class="{direction(m["ret_1w"])}">{signed(m["ret_1w"])}</b></span>'
+            f'<span>1M<b class="{direction(m["ret_1m"])}">{signed(m["ret_1m"])}</b></span>'
+            f'<span>RSI<b>{fmt(m["rsi"], 1)}</b></span></div></article>')
+    return f'<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))">{"".join(out)}</div>'
+
+
 XRAY = """<!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
