@@ -1,20 +1,25 @@
 """Streamlit tabs: Opportunities (scanner), Market (NSE scanners), Journal (your trades dashboard)."""
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 import advisor
 import backtest
 import brief
+import data
 import history
 import ipo
 import journal
 import market
 import mf
+import orderblock
 import scanner
 import strategies
 from setups import years_to
-from views import e, fmt, tone, verdicts
+from views import chart, e, fmt, ob_levels, tone, verdicts, xray_board
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -107,6 +112,70 @@ def opportunities_tab(vmode):
         st.rerun()
     if res["failed"]:
         st.caption(f"No data for: {', '.join(res['failed'])}")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _xray(uni):
+    return orderblock.scan(market.universe(uni))
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _ob_candles(symbol):
+    def one(iv):
+        try:
+            return iv, data.candles(symbol, "NSE", iv, smc=True)
+        except Exception:
+            return iv, None
+    with ThreadPoolExecutor(4) as pool:
+        got = dict(pool.map(one, data.CHART))
+    return {iv: c for iv, c in got.items() if c and c["time"]}
+
+
+def orderblock_tab():
+    st.html('<div class="sec">Order blocks &amp; liquidity<span class="muted">every stock ranked Bullish / Bearish / Choppy, '
+            'with the zones a move started from and the levels where stops rest</span></div>')
+    c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+    unis = list(market.UNIVERSES)
+    uni = c1.selectbox("Universe", unis, index=unis.index("F&O stocks"), key="ob_uni")
+    if c2.button("Refresh", width="stretch"):
+        _xray.clear()
+    status, note = scanner.market_status()
+    st.html(f'<div class="osignal" style="margin:10px 0"><span class="badge {"t-up" if status == "open" else "t-warn"}">MARKET {status.upper()}</span>'
+            f'<span class="muted">{e(note)}</span></div>')
+    try:
+        with st.spinner(f"Scanning {uni} on 15-minute candles…"):
+            df, failed = _xray(uni)
+    except Exception as ex:
+        st.warning(f"Couldn't load {uni} ({type(ex).__name__}). Try again in a moment.")
+        return
+    if df.empty:
+        st.warning("No candle data came back. Try again in a moment.")
+        return
+    st.html(xray_board(df))
+    st.caption("Strength = today's move in ATRs × efficiency (net move ÷ distance travelled), so a straight 1-ATR move outranks a "
+               "whipsaw 2% one. Choppy = efficiency under 0.25 or a move under 0.3 ATR. Yahoo candles lag a few minutes; "
+               "the board refreshes every 5 minutes.")
+
+    syms = df["symbol"].tolist()
+    if st.session_state.get("ob_sym") not in syms:
+        st.session_state.pop("ob_sym", None)
+    st.html('<div class="sec">X-ray a stock<span class="muted">its order blocks and liquidity on the chart</span></div>')
+    c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+    sym = c1.selectbox("Stock (strongest first)", syms, key="ob_sym")
+    if c2.button("Open on Analyze tab", width="stretch"):
+        st.session_state.symbol, st.session_state.run, st.session_state.goto = sym, True, "Analyze"
+        st.rerun()
+    st.html(ob_levels(df[df["symbol"] == sym].iloc[0]))
+    candles = _ob_candles(sym)
+    if candles:
+        components.html(chart(candles, {}, start="15m"), height=600)  # the board is built on 15m
+    else:
+        st.warning("Chart data unavailable right now.")
+    if failed:
+        st.caption(f"No data for: {', '.join(failed)}")
+    st.caption("Order block = the candle a move started from, once that move closed beyond the previous swing high or low; it "
+               "is removed when price closes through it. Liquidity = swing highs / lows not yet traded through. These are "
+               "standard price-action definitions on public candles, not exchange order-book data, and not advice.")
 
 
 @st.cache_data(ttl=60, show_spinner=False)

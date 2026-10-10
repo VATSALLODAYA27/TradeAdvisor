@@ -228,6 +228,15 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .checks .ok { color: var(--up); } .checks .no { color: var(--down); }
 .score { font: 700 20px var(--mono); }
 @media (max-width: 980px) { .vpanel, .sc { grid-template-columns: 1fr; } .facts { grid-template-columns: repeat(2, 1fr); } }
+
+/* ---- order blocks: x-ray board ---- */
+.board3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.board { list-style: none; margin: 0; padding: 0; font: 12px var(--mono); max-height: 520px; overflow-y: auto; }
+.board li { display: grid; grid-template-columns: 22px 1fr auto 40px; gap: 8px; align-items: center; padding: 5px 0; margin: 0; border-bottom: 1px solid var(--line); }
+.board li > span:first-child { color: var(--muted); }
+.board b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .board .str { text-align: right; color: var(--tone); font-weight: 700; }
+.board em { font-style: normal; font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--muted); }
+@media (max-width: 980px) { .board3 { grid-template-columns: 1fr; } }
 </style>
 """
 
@@ -582,6 +591,42 @@ def strike_check(r):
             'assume the move happens today.</p></div></div></section>')
 
 
+# ---- order blocks tab ----
+
+def xray_board(df, top=20):
+    """Bullish / Bearish / Choppy columns, strongest first."""
+    cols = []
+    for side, t in (("Bullish", "t-up"), ("Bearish", "t-down"), ("Choppy", "t-flat")):
+        rows = df[df["side"] == side]
+        tags = lambda r: ({1: '<em title="price is inside a bullish order block">bull OB</em>',
+                           -1: '<em title="price is inside a bearish order block">bear OB</em>'}.get(r["in_ob"], "")
+                          + ('<em title="a swing high/low was just pierced and rejected">sweep</em>' if r["sweep"] else ""))
+        items = "".join(
+            f'<li><span>{n:02d}</span><b>{e(r["symbol"])}{tags(r)}</b>'
+            f'<span class="{direction(r["change_pct"])}">{signed(r["change_pct"])}</span><span class="str">{int(r["strength"])}</span></li>'
+            for n, (_, r) in enumerate(rows.head(top).iterrows(), 1))
+        cols.append(f'<article class="panel card {t}"><header><h3>{side}</h3><span class="muted">{len(rows)} stocks · strength</span>'
+                    f'</header><ol class="board">{items or "<li><span></span><b class=muted>none right now</b></li>"}</ol></article>')
+    return f'<div class="board3">{"".join(cols)}</div>'
+
+
+def ob_levels(r):
+    """One stock's zones, top of the ladder first."""
+    zone = lambda lo, hi: "—" if lo is None or lo != lo else f"{fmt(lo)} – {fmt(hi)}"
+    num = lambda v: fmt(None if v is None or v != v else v)
+    cells = [("Liquidity above", num(r["liq_above"]), ""), ("Bearish order block", zone(r["ob_bear_bottom"], r["ob_bear_top"]), "down"),
+             ("Price", f'{fmt(r["price"])} ({signed(r["change_pct"])})', "near"),
+             ("Bullish order block", zone(r["ob_bull_bottom"], r["ob_bull_top"]), "up"), ("Liquidity below", num(r["liq_below"]), "")]
+    sweep = {1: f'lows at {num(r["sweep_price"])} were swept and reclaimed (sellers trapped)',
+             -1: f'highs at {num(r["sweep_price"])} were swept and rejected (buyers trapped)'}.get(r["sweep"], "no recent liquidity sweep")
+    t = {"Bullish": "t-up", "Bearish": "t-down"}.get(r["side"], "t-flat")
+    return (f'<section class="panel"><div class="osignal"><span class="badge lg {t}">{e(r["side"].upper())}</span>'
+            f'<b>{e(r["symbol"])}</b><span class="muted">strength {int(r["strength"])} = {abs(r["move_atr"]):g} ATR move × '
+            f'{r["efficiency"]:g} efficiency · {sweep}</span></div><div class="lvl" style="margin-top:12px">'
+            + "".join(f'<div class="{"near" if c == "near" else ""}"><span>{k}</span><b class="{c if c != "near" else ""}">{v}</b></div>'
+                      for k, v, c in cells) + "</div></section>")
+
+
 # ---- candlestick chart: TradingView lightweight-charts inside a component iframe ----
 
 CHART = """<!doctype html><html><head><meta charset="utf-8">
@@ -618,7 +663,8 @@ const FALLBACK = ['#c98500', '#9b6bff', '#8fa3bf'];
 const emaColor = (k, n) => EMA_BY_PERIOD[+k.replace('ema_', '')] || FALLBACK[n % FALLBACK.length];
 const ZONE = {supply: 'rgba(125,138,165,.20)', demand: 'rgba(0,150,136,.24)',
   fvg_bull: 'rgba(245,217,10,.16)', fvg_bear: 'rgba(255,152,0,.18)', climax_up: 'rgba(22,199,132,.16)',
-  climax_down: 'rgba(234,57,67,.16)', rising_up: 'rgba(59,130,246,.16)', rising_down: 'rgba(155,89,182,.18)'};
+  climax_down: 'rgba(234,57,67,.16)', rising_up: 'rgba(59,130,246,.16)', rising_down: 'rgba(155,89,182,.18)',
+  ob_bull: 'rgba(22,199,132,.22)', ob_bear: 'rgba(234,57,67,.22)'};
 const FIBC = {'0': '#8fa3bf', '0.5': '#16c784', '1': '#8fa3bf'};
 
 // shaded boxes from a start time to the right edge (zones stay live until broken)
@@ -644,7 +690,7 @@ class Zones {
 }
 const fmt = v => v == null ? '—' : v.toLocaleString('en-IN', {maximumFractionDigits: 2});
 const fmtVol = v => v >= 1e7 ? (v / 1e7).toFixed(2) + ' Cr' : v >= 1e5 ? (v / 1e5).toFixed(1) + ' L' : fmt(Math.round(v));
-const hidden = {pivots: false, fib: false, zones: false, signals: false}; let chart, series = {}, wallLines = [], vsLines = {fib: [], pivots: []}, markerApi = null, cur = ALL['1D'] ? '1D' : Object.keys(ALL)[0], hover = null;
+const hidden = {pivots: false, fib: false, zones: false, signals: false}; let chart, series = {}, wallLines = [], vsLines = {fib: [], pivots: []}, markerApi = null, cur = ALL['__START__'] ? '__START__' : Object.keys(ALL)[0], hover = null;
 const walls = [['call_wall', 'Call wall', DOWN], ['put_wall', 'Put wall', UP], ['max_pain', 'Max pain', '#7d8aa5']].filter(([k]) => WALLS[k] != null);
 
 function readout() {
@@ -671,7 +717,8 @@ function vsToggles(d) {
     + (v.pivots ? b('pivots', `Pivots <b>P ${fmt(v.pivots.P)}</b>`, PIVOT, 'dot') : '')
     + (v.fib ? b('fib', `Fib <b>0.5 ${fmt(v.fib.levels['0.5'])}</b>`, FIBC['0.5'], 'dot') : '')
     + (v.zones && v.zones.length ? b('zones', `Zones <b>${v.zones.length}</b>`, '#009688', '') : '')
-    + (v.zones && v.zones.some(z => z.kind.startsWith('fvg')) ? `<span class="hint">yellow = bullish FVG · orange = bearish FVG</span>` : '');
+    + (v.zones && v.zones.some(z => z.kind.startsWith('fvg')) ? `<span class="hint">yellow = bullish FVG · orange = bearish FVG</span>` : '')
+    + (v.liq ? `<span class="hint">green = bullish order block · red = bearish · dotted = resting liquidity</span>` : '');
 }
 
 function applyHidden() {
@@ -718,6 +765,8 @@ function draw() {
     pivots: v.pivots ? Object.entries(v.pivots).map(([name, price]) => candle.createPriceLine({price, color: PIVOT,
       lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: true, title: name})) : [],
   };
+  for (const q of v.liq || []) candle.createPriceLine({price: q.price, color: '#f0b90b', lineWidth: 1, lineStyle: LineStyle.Dotted,
+    axisLabelVisible: true, title: q.side > 0 ? 'Liquidity (highs)' : 'Liquidity (lows)'});
   wallLines = walls.map(([k, title, color]) => candle.createPriceLine({price: WALLS[k], color, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title}));
   if (d.volume.some(v => v > 0)) {  // volume in its own pane: never a second y-scale on the price pane
     const vol = chart.addSeries(HistogramSeries, {priceFormat: {type: 'custom', formatter: fmtVol, minMove: 1}, priceLineVisible: false, lastValueVisible: false}, 1);
@@ -735,9 +784,9 @@ draw();
 </script></body></html>"""
 
 
-def chart(candles_by_interval, walls):
+def chart(candles_by_interval, walls, start="1D"):
     keys = ("call_wall", "put_wall", "max_pain")
-    return (CHART.replace("__DATA__", json.dumps(candles_by_interval))
+    return (CHART.replace("__DATA__", json.dumps(candles_by_interval)).replace("__START__", start)
             .replace("__WALLS__", json.dumps({k: walls.get(k) for k in keys})))
 
 

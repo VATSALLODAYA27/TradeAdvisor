@@ -11,6 +11,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+import orderblock
 import signals
 import vatsal
 
@@ -379,7 +380,8 @@ IST = 19800  # chart library draws UTC; shift so the axis reads IST
 PIVOT_PERIOD = {"5m": "D", "15m": "D", "1D": "W-FRI", "1W": "ME"}  # pivots use the previous period of this size
 
 
-def candles(symbol, exchange="NSE", interval="1D", vatsal_mode=False):
+def candles(symbol, exchange="NSE", interval="1D", vatsal_mode=False, smc=False):
+    """smc=True swaps the Vatsal overlays for order blocks and resting liquidity (Order Blocks tab)."""
     period, iv, show = CHART[interval]
     d = yf.Ticker(yf_symbol(symbol, exchange)).history(period=period, interval=iv)
     if len(d) < 60 and exchange == "BSE":
@@ -409,6 +411,16 @@ def candles(symbol, exchange="NSE", interval="1D", vatsal_mode=False):
     hlc = grp.agg({"High": "max", "Low": "min", "Close": "last"})
     piv = {k: round(float(v), 2) for k, v in vatsal.pivots(*hlc.iloc[-2][["High", "Low", "Close"]]).items()} if len(hlc) > 1 else None
 
+    overlay = {"markers": markers, "zones": zones, "fib": fibo, "pivots": piv} if vatsal_mode else {}
+    if smc:
+        last = float(d["Close"].iloc[-1])
+        resting = sorted(orderblock.liquidity(d)[0], key=lambda x: abs(x["price"] - last))
+        overlay = {"zones": [{"t1": at(z["start"]), "kind": z["kind"], "top": round(z["top"], 2), "bottom": round(z["bottom"], 2)}
+                             for z in orderblock.order_blocks(d)[-16:]],
+                   # the three nearest untouched swing highs and lows
+                   "liq": [{"side": x["side"], "price": round(x["price"], 2)}
+                           for side in (1, -1) for x in [y for y in resting if y["side"] == side][:3]]}
+
     d, ind = d.tail(show), ind.tail(show)
     r = lambda col: [None if x != x else round(float(x), 2) for x in col]
     return {
@@ -416,7 +428,7 @@ def candles(symbol, exchange="NSE", interval="1D", vatsal_mode=False):
         "open": r(d["Open"]), "high": r(d["High"]), "low": r(d["Low"]), "close": r(d["Close"]),
         "volume": [int(v) for v in d["Volume"]],
         "lines": {k: r(ind[k]) for k in ind.columns},
-        "vatsal": {"markers": markers, "zones": zones, "fib": fibo, "pivots": piv} if vatsal_mode else {},
+        "vatsal": overlay,
     }
 
 
