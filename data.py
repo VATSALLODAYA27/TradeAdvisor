@@ -32,6 +32,10 @@ def nse(path, tries=3):
     for attempt in range(tries):
         try:
             r = NSE.get(f"https://www.nseindia.com/api/{path}", timeout=10)
+            if r.status_code in (401, 403) and attempt < tries - 1:
+                # NSE answers some endpoints only with its site cookies (always so from cloud servers): load a page, retry
+                NSE.get("https://www.nseindia.com/option-chain", headers={"Accept": "text/html"}, timeout=10)
+                continue
             r.raise_for_status()
             return r.json()
         except (requests.ConnectionError, requests.Timeout):  # NSE often drops the first connection; retry
