@@ -1003,7 +1003,7 @@ def mascot_widget():
             if not s.mascot_chat:
                 st.chat_message("assistant", avatar="🐂").write(
                     f"Hi, I'm {name}! Ask me about any stock, IPO, fund or how this site works. Try "
-                    "\"analyze jain irrigation\", \"did Reliance beat estimates?\" or \"take me to IPOs\".")
+                    "\"analyze NIFTY 50\" or \"did Reliance beat estimates?\".")
             for h in s.mascot_chat[-10:]:
                 st.chat_message("user" if h["role"] == "user" else "assistant", avatar=None if h["role"] == "user" else "🐂").write(h["text"])
             with st.form("mascot_form", clear_on_submit=True, border=False):
