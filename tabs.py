@@ -1,4 +1,5 @@
 """Streamlit tabs: Opportunities (scanner), Market (NSE scanners), Journal (your trades dashboard)."""
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
@@ -992,7 +993,8 @@ def mascot_widget():
     s.setdefault("mascot_mic_n", 0)
     with st.container(key="mascot"):
         if bubble := s.pop("mascot_bubble", None):
-            short = bubble if len(bubble) <= 220 else bubble[:217].rsplit(" ", 1)[0] + "… (more in the chat)"
+            plain = re.sub(r"[*_`#]+", "", bubble)  # the bubble is plain text: drop markdown marks like **APPLY**
+            short = plain if len(plain) <= 220 else plain[:217].rsplit(" ", 1)[0] + "… (more in the chat)"
             st.html(f'<div class="mascot-bubble">{e(short)}</div>')
         if audio := s.pop("mascot_audio", None):
             st.audio(audio, format="audio/wav", autoplay=True)

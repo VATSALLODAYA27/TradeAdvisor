@@ -266,6 +266,8 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .credit { position: fixed; left: 16px; bottom: 10px; z-index: 999; font-size: 11px; color: var(--muted); letter-spacing: .02em;
   background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
 .credit b { color: var(--text); font-weight: 600; }
+/* the page's scroll area takes focus after a rerun; its outline framed the whole screen. Buttons, inputs and tabs keep theirs */
+[data-testid="stMain"]:focus, [data-testid="stMain"]:focus-visible { outline: none; }
 details.fold { margin-top: 10px; } details.fold > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0; }
 details.fold > summary:hover { color: var(--text); } details.fold[open] > summary { margin-bottom: 8px; }
 </style>
