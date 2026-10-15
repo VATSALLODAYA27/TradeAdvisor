@@ -48,6 +48,8 @@ W = 174 * mm  # text width on A4 with 18 mm margins
 
 
 def f(v, d=2, pre="", suf=""):
+    if pre == "₹" and BODY == "Helvetica":  # no font with the ₹ glyph on this machine: it would print as a blank box
+        pre = "Rs "
     return "—" if v is None or v != v else f"{pre}{v:,.{d}f}{suf}"
 
 
@@ -130,7 +132,8 @@ def letterhead(c, doc):
     c.setLineWidth(0.5)
     c.line(m, 14 * mm, w - m, 14 * mm)
     c.setFont(BODY, 6.8)
-    c.drawString(m, 10 * mm, "For information and education only · not investment advice · TradeAdvisor is not SEBI-registered")
+    c.drawString(m, 10 * mm, "Created by Vatsal · for information and education only · not investment advice · "
+                             "TradeAdvisor is not SEBI-registered")
     c.drawRightString(w - m, 10 * mm, f"Page {doc.page}")
     c.restoreState()
 
@@ -143,7 +146,7 @@ def build(out, d, name, res=None, res_metrics=None, rules_note=None):
     color = lambda x: "#0e9f6e" if (x or 0) >= 0 else "#d92d3a"
     story = [Paragraph(f"{sym} <font size=10 color='#5b6474'>· {name}</font>", ST["h1"]),
              Paragraph(f"{out['exchange']} · price as of {str(m.get('price_time', '—'))[:16]} IST · report generated "
-                       f"{datetime.now():%d %b %Y, %H:%M} · prepared by Taursa, the TradeAdvisor assistant", ST["s"]), Spacer(1, 6),
+                       f"{datetime.now():%d %b %Y, %H:%M} · created by Vatsal · prepared by Taursa, the TradeAdvisor assistant", ST["s"]), Spacer(1, 6),
              kpis([("Price", f"{f(price, 2, '₹')} <font color='{color(chg)}'>{f(chg, 2, '+' if (chg or 0) >= 0 else '', '%')}</font>"),
                    ("Day range", f"{f(m.get('day_low'))} – {f(m.get('day_high'))}"),
                    ("52-week range", f"{f(m.get('low_52w'))} – {f(m.get('high_52w'))}"), ("RSI (14)", f(m.get("rsi"))),

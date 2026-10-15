@@ -260,6 +260,9 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .ticker:hover span { animation-play-state: paused; }
 @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .ticker span { animation: none; padding-left: 12px; } }
+.credit { position: fixed; left: 16px; bottom: 10px; z-index: 999; font-size: 11px; color: var(--muted); letter-spacing: .02em;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
+.credit b { color: var(--text); font-weight: 600; }
 </style>
 """
 
@@ -269,16 +272,23 @@ TICKER = ('<div class="ticker" role="note" aria-label="Disclaimer"><span><b>Disc
           'delayed or wrong. Investing involves risk, including loss of capital. Do your own research or consult a SEBI-registered '
           'adviser before acting.</span></div>')
 
+CREDIT = '<div class="credit">Created by <b>Vatsal</b></div>'
+
 # Taursa, the site mascot: a bull (green, up) and a bear (red, down) sharing one badge, with a price line between them.
 MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Taursa, the bull and bear mascot">
 <circle cx="60" cy="60" r="57" fill="#0f1626" stroke="#1e2a42" stroke-width="3"/>
 <path d="M60 3a57 57 0 0 0 0 114z" fill="#16c784" opacity=".12"/><path d="M60 3a57 57 0 0 1 0 114z" fill="#ea3943" opacity=".12"/>
-<path d="M27 47c-9-3-14-11-13-20 5 6 11 9 18 10M51 41c4-8 4-16 1-22-3 7-8 12-15 14" fill="none" stroke="#e6ebf5" stroke-width="4" stroke-linecap="round"/>
-<ellipse cx="38" cy="66" rx="19" ry="23" fill="#16c784"/>
-<ellipse cx="38" cy="80" rx="12" ry="9" fill="#0e9f6e"/>
-<circle cx="34" cy="80" r="2" fill="#04110b"/><circle cx="42" cy="80" r="2" fill="#04110b"/>
-<circle cx="31" cy="61" r="3.2" fill="#04110b"/><circle cx="45" cy="61" r="3.2" fill="#04110b"/>
-<circle cx="32" cy="60" r="1.1" fill="#fff"/><circle cx="46" cy="60" r="1.1" fill="#fff"/>
+<path d="M27 50C15 50 9 42 11 28c3 8 9 13 19 15zM49 50c12 0 18-8 16-22-3 8-9 13-19 15z" fill="#f3e4c4" stroke="#c9b48a" stroke-width="1"/>
+<ellipse cx="18" cy="58" rx="7" ry="3.6" fill="#0e9f6e" transform="rotate(-18 18 58)"/>
+<ellipse cx="58" cy="58" rx="7" ry="3.6" fill="#0e9f6e" transform="rotate(18 58 58)"/>
+<path d="M23 54c0-9 6-13 15-13s15 4 15 13l-1 14c-1 9-6 13-14 13s-13-4-14-13z" fill="#16c784"/>
+<path d="M33 42l5 6 5-6" fill="#0e9f6e"/>
+<ellipse cx="38" cy="77" rx="12" ry="8.5" fill="#7ee0b5"/>
+<ellipse cx="33.5" cy="77.5" rx="2.2" ry="2.8" fill="#0b3d2a"/><ellipse cx="42.5" cy="77.5" rx="2.2" ry="2.8" fill="#0b3d2a"/>
+<path d="M33 85a5 4 0 0 0 10 0" fill="none" stroke="#c9b48a" stroke-width="1.8" stroke-linecap="round"/>
+<circle cx="31" cy="60" r="3.2" fill="#04110b"/><circle cx="45" cy="60" r="3.2" fill="#04110b"/>
+<circle cx="32" cy="59" r="1.1" fill="#fff"/><circle cx="46" cy="59" r="1.1" fill="#fff"/>
+<path d="M27 54l6 2M49 54l-6 2" stroke="#0b3d2a" stroke-width="1.8" stroke-linecap="round"/>
 <circle cx="70" cy="44" r="7" fill="#ea3943"/><circle cx="98" cy="44" r="7" fill="#ea3943"/>
 <circle cx="70" cy="44" r="3" fill="#b4232f"/><circle cx="98" cy="44" r="3" fill="#b4232f"/>
 <circle cx="84" cy="66" r="20" fill="#ea3943"/>

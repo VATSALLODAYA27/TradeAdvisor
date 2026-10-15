@@ -66,6 +66,7 @@ def left_tab():
 
 topbar = st.empty()  # filled at the end, once this run's analysis (if any) is done
 st.html(views.TICKER)
+st.html(views.CREDIT)
 tab_an, tab_opp, tab_ob, tab_str, tab_bt, tab_mkt, tab_news, tab_com, tab_ipo, tab_mf, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
     ["Analyze", "Opportunities", "Order Blocks", "Strategies", "Backtest", "Market", "News", "Commodities", "IPO", "Mutual Funds", "Brief", "Journal", "Rules", "Indicators"],
     key="main_tab", on_change=left_tab)
