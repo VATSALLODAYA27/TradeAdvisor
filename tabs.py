@@ -16,6 +16,7 @@ import ipo
 import journal
 import market
 import mf
+import news
 import orderblock
 import scanner
 import strategies
@@ -796,6 +797,104 @@ def mf_tab(rules):
                      column_config={c: st.column_config.NumberColumn(c, format="%.2f") for c in MF_COLS.values()})
     st.caption(f"Metrics are vs {bench}. Past returns don't predict future returns. Expense ratio, AUM and holdings are not "
                "in these free sources; check the factsheet before investing.")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _news_stock(symbol):
+    return news.stock(symbol)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _news_market():
+    return news.market()
+
+
+def _ago(t):
+    mins = (pd.Timestamp.now(tz="UTC") - pd.Timestamp(t)).total_seconds() / 60
+    return f"{mins:.0f} min ago" if mins < 60 else f"{mins / 60:.0f} h ago" if mins < 1440 else f"{mins / 1440:.0f} d ago"
+
+
+def _headlines(items):
+    """Headline list: sentiment chip, brokerage call chip (if any), linked title, outlet and age."""
+    rows = []
+    for x in items:
+        s = x.get("s")
+        chip = "" if s is None else (f'<span class="badge {"t-up" if s >= 0.25 else "t-down" if s <= -0.25 else "t-flat"}">'
+                                     f'{"GOOD" if s >= 0.25 else "BAD" if s <= -0.25 else "NEUTRAL"} {s:+.1f}</span>')
+        call = (f'<span class="badge {tone(x["call"])}">{e(x["call"])}{" · " + e(x["broker"]) if x.get("broker") else ""}'
+                f'{" · ₹" + fmt(x["target"], 0) if x.get("target") else ""}</span>') if x.get("call") else ""
+        rows.append(f'<li style="display:flex;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line)">'
+                    f'<span style="flex:0 0 auto;display:flex;gap:4px">{chip}{call}</span>'
+                    f'<span style="flex:1"><a href="{e(x["link"] or "#")}" target="_blank" style="color:var(--text)">{e(x["title"])}</a>'
+                    f' <span class="muted" style="font-size:11px">{e(x["source"])} · {_ago(x["published"])}</span></span></li>')
+    return f'<section class="panel"><ul style="list-style:none;margin:0;padding:0">{"".join(rows)}</ul></section>'
+
+
+def news_tab(rules):
+    st.html('<div class="sec">News &amp; analysts<span class="muted">headlines from Google News and Economic Times, scored by '
+            'Groq · analyst consensus from Yahoo · verdicts from the [news] section of your rules</span></div>')
+    st.session_state.setdefault("news_sym", st.session_state.get("symbol", "RELIANCE"))
+    c1, _ = st.columns([2, 5])
+    sym = c1.text_input("Stock", key="news_sym", help="NSE symbol, e.g. RELIANCE, HDFCBANK, IREDA").strip().upper()
+    if sym:
+        try:
+            with st.spinner(f"Reading {sym} news and analyst views…"):
+                r = _news_stock(sym)
+        except Exception as ex:
+            st.warning(f"Couldn't load {sym} ({type(ex).__name__}). Try again in a moment.")
+            r = None
+        if r:
+            m, a = r["metrics"], r["analyst"] or {}
+            section = rules.get("news")
+            v = advisor.verdict(section, m) if section else None
+            if not section:
+                st.info("Add a [news] section on the Rules tab (metrics: news_*, analyst_*, target_*, broker_*) to get verdicts here.")
+            badge = f'<span class="badge lg {tone(v["verdict"])}">{e(v["verdict"].replace("_", " "))}</span>' if v else ""
+            pct = lambda x: "—" if x is None else f"{x:+.1f}%"
+            kpis = [("Price", "—" if r["price"] is None else f"₹{fmt(r['price'])}"),
+                    ("News mood (30 days)", "—" if m["news_sentiment"] is None else
+                     f"{m['news_sentiment']:+.2f} · {m['news_positive']} good / {m['news_negative']} bad"),
+                    ("Analysts", "—" if not m["analyst_count"] else f"{(a.get('recommendationKey') or '').replace('_', ' ').upper()} · "
+                     f"{m['analyst_count']} analysts"),
+                    ("Rating buy share", "—" if m["analyst_buy_pct"] is None else f"{m['analyst_buy_pct']:.0f}% buy"),
+                    ("Mean target", "—" if m["target_mean"] is None else f"₹{fmt(m['target_mean'])} ({pct(m['target_upside_pct'])})"),
+                    ("Target range", "—" if m["target_low"] is None else f"₹{fmt(m['target_low'])} – ₹{fmt(m['target_high'])}"),
+                    ("Brokerage calls in news", f"{m['broker_buy_calls']} buy / {m['broker_sell_calls']} sell"),
+                    ("Avg brokerage target", "—" if m["broker_target_avg"] is None else f"₹{fmt(m['broker_target_avg'])}")]
+            st.html(f'<section class="panel"><header style="display:flex;gap:12px;align-items:center;margin-bottom:10px">'
+                    f'<h3 style="margin:0">{e(r["name"])} <span class="muted" style="font-size:13px">{e(sym)}</span></h3>{badge}</header>'
+                    f'<div class="kpis" style="grid-template-columns:repeat(4,1fr)">'
+                    + "".join(f"<div><span>{k}</span><b>{val}</b></div>" for k, val in kpis) + "</div></section>")
+            c = a.get("counts")
+            if c and sum(c.values()):
+                labels = ["Strong buy", "Buy", "Hold", "Sell", "Strong sell"]
+                vals = [c["strongBuy"], c["buy"], c["hold"], c["sell"], c["strongSell"]]
+                fig = go.Figure(go.Bar(x=vals, y=labels, orientation="h", text=vals, textposition="outside",
+                                       marker_color=[UP, UP, MUTED, DOWN, DOWN]))
+                fig.update_layout(**{**CHART_LAYOUT, "height": 220}, title="Analyst ratings this month", yaxis=dict(autorange="reversed"))
+                st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+            if v:
+                st.html(verdicts({"order": ["news"], "verdicts": {"news": v}}))
+            if r["headlines"]:
+                st.html(f'<div class="sec">{e(sym)} headlines<span class="muted">last 30 days, plus brokerage-call stories '
+                        'up to 90 days · newest first · '
+                        'GOOD/BAD = Groq\'s read for this share price, not a fact</span></div>' + _headlines(r["headlines"]))
+            else:
+                st.info(f"No {sym} headlines in the last 30 days.")
+            if r["errors"]:
+                st.caption("Unavailable: " + "; ".join(f"{k} ({val})" for k, val in r["errors"].items()))
+
+    st.html('<div class="sec">Market news<span class="muted">Economic Times markets, newest first · refreshed every 15 minutes</span></div>')
+    try:
+        items, err = _news_market()
+    except Exception as ex:
+        st.warning(f"Couldn't load market news ({type(ex).__name__}).")
+        return
+    st.html(_headlines(items))
+    if err:
+        st.caption(f"Headlines unscored: {err}")
+    st.caption("Sentiment and brokerage calls are read from headlines by an AI model and can be wrong; analyst targets are "
+               "Yahoo's consensus. Not investment advice.")
 
 
 def brief_tab():

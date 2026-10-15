@@ -78,3 +78,10 @@ AVOID = [["mf_excess_3y", "<", 0]]
 default = "HOLD"
 BUY = [["close", ">", "ema_50"], ["ema_20", ">", "ema_50"], ["rsi", "between", [45, 70]], ["macd_hist", ">", 0]]
 SELL = [["close", "<", "ema_50"], ["ema_20", "<", "ema_50"], ["macd_hist", "<", 0]]
+
+# News & analysts advisor (news.py): headlines scored by Groq (-1 bad .. +1 good for the share price) plus Yahoo's analyst
+# consensus. Placeholder rules: replace with yours. target_upside_pct = mean analyst target vs today's price, in %.
+[news]
+default = "NEUTRAL"
+GOOD_TO_BUY = [["news_sentiment", ">=", 0.15], ["target_upside_pct", ">=", 10], ["analyst_buy_pct", ">=", 60]]
+GOOD_TO_SELL = [["news_sentiment", "<=", -0.15], ["target_upside_pct", "<", 5]]
