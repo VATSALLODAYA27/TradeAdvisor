@@ -17,6 +17,7 @@ import journal
 import market
 import mf
 import news
+import results
 import orderblock
 import scanner
 import strategies
@@ -434,7 +435,10 @@ def backtest_tab(rules, vmode):
             'fill at the next open · past results are not a forecast</span></div>')
     with st.container(key="panel-bt"):
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
-        sym = c1.text_input("Symbol", st.session_state.get("symbol", "RELIANCE"), key="bt_sym").strip().upper()
+        sym = c1.text_input("Symbol", st.session_state.get("symbol", "RELIANCE"), key="bt_sym",
+                            help="NSE symbol or company name").strip().upper()
+        if " " in sym and (found := data.resolve(sym)):
+            sym = found[0]
         names = [n for n in rules if n not in advisor.OWN_TAB]
         name = c2.selectbox("Advisor (rules.toml section)", names, index=names.index("swing") if "swing" in names else 0, key="bt_adv")
         period = c3.selectbox("History", ["2y", "3y", "5y", "10y"], index=1, key="bt_period",
@@ -558,7 +562,8 @@ def listed_view(kind):
 
 
 def ipo_tab(rules):
-    st.html('<div class="sec">IPOs<span class="muted">open and upcoming issues from NSE · GMP and financials from ipowatch.in · '
+    st.html('<div class="sec">IPOs<span class="muted">open and upcoming issues from NSE · GMP from investorgain · financials and '
+            'broker reviews from chittorgarh · '
             'verdicts from the [ipo] section of your rules</span></div>')
     c0, c1, c2, _ = st.columns([2.2, 2.2, 1, 1.5], vertical_alignment="bottom")
     view = c0.segmented_control("View", ["Open & upcoming", "Recently listed"], default="Open & upcoming", key="ipo_view") or "Open & upcoming"
@@ -617,7 +622,9 @@ def ipo_tab(rules):
             ("Profit (latest FY)", f"{money(m['ipo_pat_cr'], 2)} cr · {pct(m['ipo_pat_growth'])}"),
             ("ROE / ROCE", f"{fmt(m['ipo_roe'])}% / {fmt(m['ipo_roce'])}%"),
             ("EBITDA / PAT margin", f"{fmt(m['ipo_ebitda_margin'])}% / {fmt(m['ipo_pat_margin'])}%"),
-            ("Debt to equity", fmt(m["ipo_debt_equity"])), ("P/E at upper band", fmt(m["ipo_pe"]))]
+            ("Debt to equity", fmt(m["ipo_debt_equity"])), ("P/E at upper band", fmt(m["ipo_pe"])),
+            ("Broker reviews", "—" if m["ipo_broker_subscribe"] is None else
+             f"{m['ipo_broker_subscribe']} subscribe · {m['ipo_broker_neutral']} neutral · {m['ipo_broker_avoid']} avoid")]
     st.html(f'<section class="panel"><header style="display:flex;gap:12px;align-items:center;margin-bottom:10px">'
             f'<h3 style="margin:0">{e(r["companyName"])}</h3>{badge}</header>'
             f'<div class="kpis" style="grid-template-columns:repeat(4,1fr)">'
@@ -633,29 +640,31 @@ def ipo_tab(rules):
         c1.plotly_chart(fig, width="stretch", config={"displaylogo": False})
     else:
         c1.info("Subscription starts when the issue opens." if r.get("status") != "Active" else "NSE has no bid data for this issue yet.")
-    fin = pg.get("financials")
-    if fin is not None:
-        f = fin[fin.iloc[:, 0].astype(str).str.fullmatch(r"\s*(FY)?\s*\d{2,4}\s*")]
+    f = ipo.years(pg["financials"]) if pg.get("financials") is not None else None
+    if f is not None and len(f):
         fig = go.Figure()
-        for col, color in (("Revenue", "#3987e5"), ("PAT", UP)):
-            if col in f:
-                fig.add_trace(go.Bar(x=f.iloc[:, 0].astype(str), y=f[col].map(ipo.num), name=col, marker_color=color))
+        for names, label, color in ((("Revenue", "Total Income"), "Revenue", "#3987e5"), (("Profit After Tax",), "Profit", UP)):
+            c = next((c for c in f.columns if any(n.lower() in str(c).lower() for n in names)), None)
+            if c is not None:
+                fig.add_trace(go.Bar(x=[str(p) for p in f.index], y=f[c], name=label, marker_color=color))
         fig.update_layout(**CHART_LAYOUT, title="Revenue and profit by fiscal year (₹ crore)", barmode="group",
                           legend=dict(orientation="h", y=-0.15))
         c2.plotly_chart(fig, width="stretch", config={"displaylogo": False})
     else:
-        c2.info("No financials found for this IPO on ipowatch.in.")
+        c2.info("No financials found for this IPO on chittorgarh.com.")
 
     if v:
         st.html('<div class="sec">Your IPO rules</div>' + verdicts({"order": ["ipo"], "verdicts": {"ipo": v}}))
-    for label, key in (("Financials", "financials"), ("Key ratios", "kpi"), ("Issue details", "issue"), ("Lot sizes", "lots"),
-                       ("Timeline", "timeline"), ("Shareholding", "holding"), ("Objects of the issue", "objects")):
+    for label, key in (("Financials (₹ crore)", "financials"), ("Key ratios", "kpi"), ("Valuation", "valuation"),
+                       ("Issue details", "issue"), ("Issue size", "size"), ("Lot sizes", "lots"), ("Promoter holding", "holding"),
+                       ("Objects of the issue", "objects"), ("Broker and member reviews", "reviews")):
         if pg.get(key) is not None:
             with st.expander(label):
                 st.dataframe(pg[key], hide_index=True, width="stretch")
-    src = f' · <a href="{e(x["gmp"]["url"])}" target="_blank">ipowatch.in page</a>' if x["gmp"] and x["gmp"].get("url") else ""
-    st.html(f'<p class="note">Sources: NSE (list, subscription){src}. GMP is an unofficial grey-market quote, not a listing '
-            f'guarantee. Financials are from the prospectus as summarised by ipowatch.in; check the RHP before applying.</p>')
+    src = f' · <a href="{e(pg["url"])}" target="_blank">chittorgarh.com page</a>' if pg.get("url") else ""
+    st.html(f'<p class="note">Sources: NSE (list, subscription) · investorgain.com (GMP){src}. GMP is an unofficial grey-market '
+            f'quote, not a listing guarantee. Financials are from the prospectus as summarised by chittorgarh.com; check the RHP '
+            f'before applying.</p>')
     if x["errors"]:
         st.caption("Unavailable: " + "; ".join(f"{k} ({val})" for k, val in x["errors"].items()))
 
@@ -835,7 +844,9 @@ def news_tab(rules):
             'Groq · analyst consensus from Yahoo · verdicts from the [news] section of your rules</span></div>')
     st.session_state.setdefault("news_sym", st.session_state.get("symbol", "RELIANCE"))
     c1, _ = st.columns([2, 5])
-    sym = c1.text_input("Stock", key="news_sym", help="NSE symbol, e.g. RELIANCE, HDFCBANK, IREDA").strip().upper()
+    sym = c1.text_input("Stock", key="news_sym", help="NSE symbol or company name, e.g. RELIANCE or jain irrigation").strip().upper()
+    if " " in sym and (found := data.resolve(sym)):
+        sym = found[0]
     if sym:
         try:
             with st.spinner(f"Reading {sym} news and analyst views…"):
@@ -895,6 +906,71 @@ def news_tab(rules):
         st.caption(f"Headlines unscored: {err}")
     st.caption("Sentiment and brokerage calls are read from headlines by an AI model and can be wrong; analyst targets are "
                "Yahoo's consensus. Not investment advice.")
+
+
+def _tiles(items, cols=4):
+    """KPI tiles; each value is (text, tone) where tone is 'up' / 'down' / ''."""
+    return (f'<div class="kpis" style="grid-template-columns:repeat({cols},1fr)">' + "".join(
+        f'<div><span>{k}</span><b class="{c}">{v}</b></div>' for k, (v, c) in items) + "</div>")
+
+
+def results_view(symbol):
+    """Latest quarterly results (QoQ, YoY, vs estimate) and the shareholding pattern with its changes."""
+    try:
+        r, m = results.summary(symbol)
+    except Exception as ex:
+        st.caption(f"Results unavailable ({type(ex).__name__}).")
+        return
+    if not r or (r["quarters"] is None and r["holding"] is None):
+        return
+    pct = lambda v: ("—", "") if v is None else (f"{v:+.1f}%", "up" if v > 0 else "down" if v < 0 else "")
+    pp = lambda v: "—" if v is None else f"{v:+.2f}"
+    q = r["quarters"]
+    if q is not None:
+        nxt = f" · next results {r['next_date']:%d %b %Y}" if r.get("next_date") else ""
+        beat = m["res_beat"]
+        est = (("—", "") if beat is None else
+               (f"{'BEAT' if beat else 'MISSED'} by {abs(m['res_eps_surprise_pct']):.1f}%", "up" if beat else "down"))
+        st.html(f'<div class="sec">Results<span class="muted">quarter ended {e(str(q.columns[-1]))} · {r["basis"]} · '
+                f'QoQ = vs previous quarter, YoY = vs same quarter last year{nxt}</span></div>'
+                + '<section class="panel">' + _tiles([
+                    ("Revenue QoQ", pct(m["res_sales_qoq"])), ("Revenue YoY", pct(m["res_sales_yoy"])),
+                    ("Net profit QoQ", pct(m["res_profit_qoq"])), ("Net profit YoY", pct(m["res_profit_yoy"])),
+                    ("EPS YoY", pct(m["res_eps_yoy"])),
+                    ("Operating margin", ("—", "") if m["res_opm"] is None else
+                     (f"{m['res_opm']:.0f}% ({pp(m['res_opm_change_yoy'])} pp YoY)", "")),
+                    ("EPS vs analyst estimate", est),
+                    ("Next results", (f"{r['next_date']:%d %b} · in {m['res_days_to_next']} day{'' if m['res_days_to_next'] == 1 else 's'}", "")
+                     if r.get("next_date") else ("—", ""))])
+                + "</section>")
+        rows = {"Revenue": results._row(q, "Sales", "Revenue"), "Net profit": results._row(q, "Net Profit")}
+        fig = go.Figure([go.Bar(x=[str(c) for c in q.columns[-8:]], y=s.iloc[-8:], name=n, marker_color=col)
+                         for (n, s), col in zip(rows.items(), ("#3987e5", UP)) if s is not None])
+        fig.update_layout(**{**CHART_LAYOUT, "height": 280}, title="Last 8 quarters (₹ crore)", barmode="group",
+                          legend=dict(orientation="h", y=-0.2))
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    h = r["holding"]
+    if h is not None:
+        chg = lambda k: (("—", "") if m[f"sh_{k}"] is None else
+                         (f"{m[f'sh_{k}']:.2f}% · {pp(m[f'sh_{k}_chg'])} QoQ · {pp(m[f'sh_{k}_chg_yoy'])} YoY",
+                          "up" if (m[f"sh_{k}_chg"] or 0) > 0 else "down" if (m[f"sh_{k}_chg"] or 0) < 0 else ""))
+        st.html(f'<div class="sec">Shareholding pattern<span class="muted">as of {e(str(h.columns[-1]))} · changes in percentage '
+                'points · public = retail investors and others</span></div>' + '<section class="panel">' + _tiles([
+                    ("Promoters", chg("promoter")), ("FIIs (foreign institutions)", chg("fii")),
+                    ("DIIs (mutual funds, insurers)", chg("dii")), ("Public (retail & others)", chg("public"))]) + "</section>")
+        parts = [(n, results._row(h, k)) for n, k in (("Promoters", "Promoters"), ("FIIs", "FIIs"), ("DIIs", "DIIs"),
+                                                      ("Government", "Government"), ("Public", "Public"), ("Others", "Others"))]
+        fig = go.Figure([go.Bar(x=[str(c) for c in h.columns], y=s, name=n) for n, s in parts if s is not None])
+        fig.update_layout(**{**CHART_LAYOUT, "height": 300}, title="Who owns the company, by quarter (%)", barmode="stack",
+                          legend=dict(orientation="h", y=-0.2), yaxis=dict(range=[0, 100]))
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    with st.expander("Full quarterly results and shareholding tables"):
+        if q is not None:
+            st.dataframe(q, width="stretch")
+        if h is not None:
+            st.dataframe(h, width="stretch")
+        if r.get("url"):
+            st.html(f'<p class="note">Source: <a href="{e(r["url"])}" target="_blank">screener.in</a> · estimates: Yahoo</p>')
 
 
 def brief_tab():

@@ -95,7 +95,7 @@ if tab_an.open:
     with tab_an:
         with st.container(key="controls"):
             c1, c2, c3 = st.columns([6, 1.4, 1.4], vertical_alignment="bottom")
-            c1.text_input("Symbol", key="symbol", placeholder="Symbol, e.g. RELIANCE, or with a strike: NIFTY 22700 PE",
+            c1.text_input("Symbol", key="symbol", placeholder="Symbol or company name, e.g. RELIANCE, jain irrigation, or NIFTY 22700 PE",
                           label_visibility="collapsed")
             exchange = c2.segmented_control("Exchange", ["NSE", "BSE"], default="NSE", key="exchange", label_visibility="collapsed") or "NSE"
             clicked = c3.button("Get verdict", type="primary", width="stretch")
@@ -112,14 +112,24 @@ if tab_an.open:
             st.pills("Quick pick", QUICK, key="quick", on_change=quick_pick, label_visibility="collapsed")
 
         if (clicked or st.session_state.pop("run", False)):
-            sym, q_strike, q_kind = setups.parse_query(st.session_state.symbol)
-            st.session_state.pending_strike = (sym, q_strike, q_kind or "CE") if q_strike else None
+            typed = st.session_state.symbol
+            sym, q_strike, q_kind = setups.parse_query(typed)
+            if " " in sym and (found := data.resolve(sym)):  # a company name like "jain irrigation", not a symbol
+                sym, exchange = found
             if not chosen:
                 st.error("Select at least one advisor.")
             else:
+                run = lambda s, ex: advisor.build(chosen).invoke({"symbol": s, "exchange": ex, "use_llm": use_llm, "verdicts": {}})
+                has_data = lambda o: "close" in o["metrics"] or "price" in o["metrics"]
                 with st.spinner(f"Fetching {sym} and running {len(chosen)} advisors…"):
-                    out = advisor.build(chosen).invoke({"symbol": sym, "exchange": exchange, "use_llm": use_llm, "verdicts": {}})
-                if "close" not in out["metrics"] and "price" not in out["metrics"]:
+                    out = run(sym, exchange)
+                    if not has_data(out) and (found := data.resolve(typed)) and found != (sym, exchange):  # e.g. "hdfc"
+                        sym, exchange = found
+                        out = run(sym, exchange)
+                if sym != typed.strip().upper().split()[0]:
+                    st.toast(f'"{typed}" → {sym} ({exchange})')
+                st.session_state.pending_strike = (sym, q_strike, q_kind or "CE") if q_strike else None
+                if not has_data(out):
                     st.session_state.result = None
                     st.error(f'Couldn\'t find "{sym}" on {exchange}. Type an NSE symbol like RELIANCE or NIFTY, optionally with a '
                              f'strike and side, e.g. NIFTY 22700 PE. Details: {out["errors"]}')
@@ -147,6 +157,7 @@ if tab_an.open:
             st.html(views.context_strip(m, history.iv_rank(result["symbol"], m.get("atm_iv"))))
             st.html(views.signals_panel(m))
             st.html('<div class="sec">Verdicts</div>' + views.verdicts(result))
+            tabs.results_view(result["symbol"])
             if vmode:
                 st.html(views.vatsal_panel(m))
             if result.get("option_pick"):

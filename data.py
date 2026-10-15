@@ -1,4 +1,5 @@
 """Free NSE/BSE data -> one flat dict of metrics. Rules in rules.toml refer to these keys."""
+import functools
 import json
 import time
 import numbers
@@ -175,6 +176,7 @@ def metric_names(s):
     import ipo  # ipo and mf import this module
     import mf
     import news
+    import results
     ind = [*(f"ema_{n}" for n in all_emas(s)), *(f"sma_{n}" for n in s["sma"]), "rsi", "macd", "macd_signal", "macd_hist",
            "atr", "atr_pct", "bb_upper", "bb_mid", "bb_lower", "bb_pct_b", "supertrend", "supertrend_dir", "vol_ratio"]
     return {
@@ -192,6 +194,7 @@ def metric_names(s):
         "IPO": ipo.METRICS,
         "Mutual funds": mf.METRICS,
         "News & analysts": news.METRICS,
+        "Results & shareholding": results.METRICS,
         "Market": ["nifty", "nifty_change_pct", "nifty_30d_pct", "nifty_pe", "vix", "vix_change_pct", "nifty_adv_dec",
                    "fii_net_cr", "dii_net_cr"],
     }
@@ -199,6 +202,22 @@ def metric_names(s):
 
 def yf_symbol(symbol, exchange):
     return INDEX_YF.get(symbol) or COMMODITY_YF.get(symbol) or f"{symbol}.{'BO' if exchange == 'BSE' else 'NS'}"
+
+
+@functools.lru_cache(maxsize=256)
+def resolve(text):
+    """Company name -> (symbol, exchange) via Yahoo search, NSE first: 'jain irrigation' -> ('JISLJALEQS', 'NSE').
+    None when nothing listed in India matches."""
+    try:
+        quotes = yf.Search(text, max_results=10).quotes
+    except Exception:
+        return None
+    for yex, suffix, ex in (("NSI", ".NS", "NSE"), ("BSE", ".BO", "BSE")):
+        for q in quotes:
+            s = q.get("symbol") or ""
+            if q.get("exchange") == yex and q.get("quoteType") == "EQUITY" and s.endswith(suffix) and "-" not in s:  # "-BL" = block-deal series
+                return s[: -len(suffix)], ex
+    return None
 
 
 def daily_metrics(symbol, exchange, s):
@@ -442,6 +461,7 @@ def candles(symbol, exchange="NSE", interval="1D", vatsal_mode=False, smc=False)
 
 def collect(symbol, exchange="NSE"):
     """Every source is independent: one failing (e.g. no options for this stock) leaves the others."""
+    import results  # results imports this module
     out, errors = {"symbol": symbol, "exchange": exchange}, {}
     s = load_settings()
     sources = [("daily", lambda: daily_metrics(symbol, exchange, s)),
@@ -450,6 +470,7 @@ def collect(symbol, exchange="NSE"):
                ("options", lambda: option_metrics(symbol)),
                ("timeframes", lambda: mtf_metrics(symbol, exchange)),
                ("events", lambda: event_metrics(symbol)),
+               ("results", lambda: results.summary(symbol)[1]),
                ("market", market_metrics)]
     with ThreadPoolExecutor(len(sources)) as pool:  # all network-bound: total time = the slowest source, not the sum
         futures = [(name, pool.submit(fn)) for name, fn in sources]
