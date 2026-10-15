@@ -143,8 +143,23 @@ SYSTEM = (
     "For each advisor, explain the verdict in 1-2 lines using the actual metric values, and name the rules "
     "that were closest to flipping it. Then point out conflicts between advisors, missing data, and risk "
     "context (VIX, FII/DII flows, days to expiry, data timestamp). Metrics ending in _cr are in rupees crore "
-    "(write e.g. ₹5,353 cr, never billions); _pct values are percent. Plain text, under 300 words."
+    "(write e.g. ₹5,353 cr, never billions); _pct values are percent. Each check reads 'PASS|FAIL metric=actual op target': "
+    "FAIL means that condition is false now, and the verdict flips only if it becomes true. Plain text, under 300 words."
 )
+
+
+CONTEXT = ("symbol", "price", "price_time", "day_change_pct", "vix", "vix_change_pct", "nifty_change_pct", "fii_net_cr",
+           "dii_net_cr", "atm_iv", "pcr_oi", "days_to_expiry", "days_to_event", "event", "sector")
+
+
+def brief(s):
+    """What the LLM needs, compact: each check as one line of text instead of the full metrics dict (~3x fewer tokens)."""
+    m, pick = s["metrics"], s.get("option_pick")
+    return {"context": {k: m[k] for k in CONTEXT if m.get(k) is not None}, "data_errors": s["errors"],
+            "verdicts": {n: {"verdict": v["verdict"], "checks": {lab: [fmt(c) for c in cs] for lab, cs in v["checks"].items()}}
+                         for n, v in s["verdicts"].items()},
+            "option_buy": pick and {k: pick[k] for k in ("verdict", "signal", "expiry", "atm")}
+            | {k: pick[k] and {x: pick[k].get(x) for x in ("strike", "ltp", "delta", "iv", "breakeven")} for k in ("CE", "PE")}}
 
 
 def report_node(s):
@@ -161,15 +176,15 @@ def report_node(s):
             "model": "openai/gpt-oss-120b",
             "messages": [
                 {"role": "system", "content": SYSTEM},
-                {"role": "user", "content": json.dumps(
-                    {"metrics": s["metrics"], "data_errors": s["errors"], "verdicts": s["verdicts"],
-                     "option_buy": s.get("option_pick") and {k: v for k, v in s["option_pick"].items() if k != "chain"}},
-                    default=str)},
+                {"role": "user", "content": json.dumps(brief(s), default=str)},
             ],
+            "max_completion_tokens": 1500, "reasoning_effort": "low",  # reasoning tokens count against the 8k/min limit
         },
         timeout=60,
     )
-    if not r.ok:  # rate limit / bad key shouldn't hide the verdicts
+    if r.status_code == 429:
+        return {"report": "(summary skipped: Groq's free tier allows about 8,000 tokens a minute; try again in a minute)"}
+    if not r.ok:  # bad key / outage shouldn't hide the verdicts
         return {"report": f"(summary failed: Groq HTTP {r.status_code} {r.text[:200]})"}
     return {"report": r.json()["choices"][0]["message"]["content"]}
 
