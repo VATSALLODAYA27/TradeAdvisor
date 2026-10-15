@@ -1,4 +1,5 @@
 """HTML/CSS for the Streamlit UI: the trading-terminal look of the old React app. Pure string builders, no Streamlit calls."""
+import base64
 import html
 import json
 import re
@@ -237,16 +238,45 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .board b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .board .str { text-align: right; color: var(--tone); font-weight: 700; }
 .board em { font-style: normal; font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--muted); }
 @media (max-width: 980px) { .board3 { grid-template-columns: 1fr; } }
+
+/* ---- mascot: floats bottom-right on every tab ---- */
+.st-key-mascot { position: fixed; right: 20px; bottom: 16px; z-index: 1000; width: fit-content !important; align-items: flex-end; gap: 6px; }
+.st-key-mascot [data-testid="stAudio"] { height: 0; overflow: hidden; opacity: 0; }
+.mascot-face img { width: 78px; height: 78px; display: block; margin-left: auto; animation: mascot-bob 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
+@keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+.mascot-bubble { max-width: 300px; background: var(--panel-2); border: 1px solid var(--up); border-radius: 12px 12px 4px 12px;
+  padding: 10px 12px; font-size: 13px; line-height: 1.45; color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+[data-testid="stPopoverBody"]:has(.mascot-head) { width: 400px; max-height: 72vh; overflow-y: auto; }
+.mascot-head { display: flex; align-items: center; gap: 10px; } .mascot-head img { width: 40px; height: 40px; }
+.mascot-head b { font-size: 15px; } .mascot-head span { display: block; font-size: 11px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .mascot-face img { animation: none; } }
 </style>
 """
 
-GROUPS = {
-    "Intraday": ["price", "vwap", "rsi_5m", "vol_ratio_5m", "day_change_pct", "day_high", "day_low", "orb_high", "orb_low"],
-    "Fundamentals": ["pe", "pb", "roe", "debt_to_equity", "revenue_growth", "earnings_growth", "profit_margin", "market_cap_cr", "sector"],
-    "Options": ["spot", "expiry", "days_to_expiry", "pcr_oi", "max_pain", "atm_iv", "call_wall", "put_wall"],
-    "Market": ["nifty", "nifty_change_pct", "nifty_30d_pct", "nifty_pe", "vix", "vix_change_pct", "nifty_adv_dec", "fii_net_cr", "dii_net_cr"],
-}
-HIDDEN = {"symbol", "exchange", "price_time", "high_52w", "low_52w"}
+# Taursa, the site mascot: a bull (green, up) and a bear (red, down) sharing one badge, with a price line between them.
+MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Taursa, the bull and bear mascot">
+<circle cx="60" cy="60" r="57" fill="#0f1626" stroke="#1e2a42" stroke-width="3"/>
+<path d="M60 3a57 57 0 0 0 0 114z" fill="#16c784" opacity=".12"/><path d="M60 3a57 57 0 0 1 0 114z" fill="#ea3943" opacity=".12"/>
+<path d="M27 47c-9-3-14-11-13-20 5 6 11 9 18 10M51 41c4-8 4-16 1-22-3 7-8 12-15 14" fill="none" stroke="#e6ebf5" stroke-width="4" stroke-linecap="round"/>
+<ellipse cx="38" cy="66" rx="19" ry="23" fill="#16c784"/>
+<ellipse cx="38" cy="80" rx="12" ry="9" fill="#0e9f6e"/>
+<circle cx="34" cy="80" r="2" fill="#04110b"/><circle cx="42" cy="80" r="2" fill="#04110b"/>
+<circle cx="31" cy="61" r="3.2" fill="#04110b"/><circle cx="45" cy="61" r="3.2" fill="#04110b"/>
+<circle cx="32" cy="60" r="1.1" fill="#fff"/><circle cx="46" cy="60" r="1.1" fill="#fff"/>
+<circle cx="70" cy="44" r="7" fill="#ea3943"/><circle cx="98" cy="44" r="7" fill="#ea3943"/>
+<circle cx="70" cy="44" r="3" fill="#b4232f"/><circle cx="98" cy="44" r="3" fill="#b4232f"/>
+<circle cx="84" cy="66" r="20" fill="#ea3943"/>
+<ellipse cx="84" cy="76" rx="9" ry="7" fill="#f4a4aa"/><ellipse cx="84" cy="73" rx="3.4" ry="2.4" fill="#2a0a0d"/>
+<circle cx="77" cy="61" r="3" fill="#2a0a0d"/><circle cx="91" cy="61" r="3" fill="#2a0a0d"/>
+<circle cx="78" cy="60" r="1" fill="#fff"/><circle cx="92" cy="60" r="1" fill="#fff"/>
+<path d="M18 100l14-9 10 5 12-12 10 6 12-14 10 7 16-15" fill="none" stroke="#f0b90b" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M95 69l8-1-1 8" fill="none" stroke="#f0b90b" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"""
+# st.html strips inline <svg>, so the drawing travels as an image
+MASCOT_IMG = (f'<img src="data:image/svg+xml;base64,{base64.b64encode(MASCOT_SVG.encode()).decode()}" '
+              'alt="Taursa, the bull and bear mascot">')
+
 e = html.escape
 
 
@@ -442,16 +472,28 @@ def report(text):
 
 
 def metrics(m):
-    known = {k for g in GROUPS.values() for k in g}
-    groups = {"Technicals": [k for k in m if k not in known and k not in HIDDEN], **GROUPS}
-    colored = re.compile(r"change_pct|30d_pct|from_52w|growth|ret_|net_cr")
+    """The indicators and levels the user trades with. Every other metric still feeds the rules; it just isn't listed."""
+    emas = sorted((k for k in m if re.fullmatch(r"ema_\d+", k)), key=lambda k: int(k[4:]))
+    fibs = sorted((k for k in m if re.fullmatch(r"fib_\d+", k)), key=lambda k: float(k[4] + "." + k[5:] if len(k) > 5 else k[4:]))
+    st_dir = {1: "UP", -1: "DOWN"}.get(m.get("supertrend_dir"))
+    groups = {
+        "Moving averages": [(f"EMA {k[4:]}", k) for k in emas],
+        "VWAP & momentum": [("VWAP", "vwap"), ("RSI", "rsi"), ("MACD", "macd"), ("MACD signal", "macd_signal"),
+                            ("MACD histogram", "macd_hist")],
+        "Trend & volatility": [(f"Supertrend{f' ({st_dir})' if st_dir else ''}", "supertrend"), ("ATR", "atr"), ("ATR %", "atr_pct")],
+        "Pivot points": [("R3", "pivot_r3"), ("R2", "pivot_r2"), ("R1", "pivot_r1"), ("Pivot", "pivot_p"), ("S1", "pivot_s1"),
+                         ("S2", "pivot_s2"), ("S3", "pivot_s3")],
+        "Fibonacci": [(f"Fib {k[4] + '.' + k[5:] if len(k) > 5 else k[4:]}", k) for k in fibs],
+        "Supply & demand": [("Supply zone top", "supply_top"), ("Supply zone bottom", "supply_bottom"),
+                            ("Demand zone top", "demand_top"), ("Demand zone bottom", "demand_bottom")],
+    }
     out = []
-    for g, keys in groups.items():
-        rows = "".join(f'<tr><td>{e(k)}</td><td class="{direction(m[k]) if colored.search(k) and isinstance(m[k], (int, float)) else ""}">'
-                       f"{e(fmt(m[k]))}</td></tr>" for k in keys if k in m)
+    for g, items in groups.items():
+        tone = lambda k: direction(m[k]) if k in ("macd_hist",) and isinstance(m[k], (int, float)) else ""
+        rows = "".join(f'<tr><td>{e(label)}</td><td class="{tone(k)}">{e(fmt(m[k]))}</td></tr>' for label, k in items if k in m)
         if rows:
             out.append(f'<section class="panel"><h4>{g}</h4><table><tbody>{rows}</tbody></table></section>')
-    return f'<div class="sec">All metrics</div><div class="metrics">{"".join(out)}</div>'
+    return f'<div class="sec">Key levels &amp; indicators</div><div class="metrics">{"".join(out)}</div>'
 
 
 def context_strip(m, iv_rank=None):

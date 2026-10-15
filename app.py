@@ -53,6 +53,8 @@ for k in PERSIST:
         st.session_state[k] = st.session_state[k]
 if goto := st.session_state.pop("goto", None):  # another tab asked to open this one (e.g. "Open on Analyze tab")
     st.session_state.main_tab = goto
+if sym := st.session_state.pop("goto_symbol", None):  # the mascot ran an analysis: show its symbol in the box
+    st.session_state.symbol = sym
 
 
 def left_tab():
@@ -66,6 +68,7 @@ topbar = st.empty()  # filled at the end, once this run's analysis (if any) is d
 tab_an, tab_opp, tab_ob, tab_str, tab_bt, tab_mkt, tab_news, tab_com, tab_ipo, tab_mf, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
     ["Analyze", "Opportunities", "Order Blocks", "Strategies", "Backtest", "Market", "News", "Commodities", "IPO", "Mutual Funds", "Brief", "Journal", "Rules", "Indicators"],
     key="main_tab", on_change=left_tab)
+tabs.mascot_widget()  # floats over every tab
 
 
 # ---------- analyze ----------

@@ -15,6 +15,7 @@ import history
 import ipo
 import journal
 import market
+import mascot
 import mf
 import news
 import results
@@ -22,7 +23,7 @@ import orderblock
 import scanner
 import strategies
 from setups import years_to
-from views import chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
+from views import MASCOT_IMG, chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -971,6 +972,67 @@ def results_view(symbol):
             st.dataframe(h, width="stretch")
         if r.get("url"):
             st.html(f'<p class="note">Source: <a href="{e(r["url"])}" target="_blank">screener.in</a> · estimates: Yahoo</p>')
+
+
+def _mascot_context():
+    """What the user is looking at, so 'this stock' or 'here' means something to the mascot."""
+    s = st.session_state
+    parts = [f"user is on the {s.get('main_tab', 'Analyze')} tab"]
+    if r := s.get("result"):
+        v = ", ".join(f"{n}: {x['verdict']}" for n, x in r["verdicts"].items())
+        m = r["metrics"]
+        parts.append(f"analysis on screen: {r['symbol']} at {m.get('price') or m.get('close')} ({v})")
+    return "; ".join(parts)
+
+
+def mascot_widget():
+    """Taursa, floating bottom-right on every tab: ask by text or voice; it answers aloud and can move around the site."""
+    s, name = st.session_state, mascot.CFG["name"]
+    s.setdefault("mascot_chat", [])
+    s.setdefault("mascot_mic_n", 0)
+    with st.container(key="mascot"):
+        if bubble := s.pop("mascot_bubble", None):
+            short = bubble if len(bubble) <= 220 else bubble[:217].rsplit(" ", 1)[0] + "… (more in the chat)"
+            st.html(f'<div class="mascot-bubble">{e(short)}</div>')
+        if audio := s.pop("mascot_audio", None):
+            st.audio(audio, format="audio/wav", autoplay=True)
+        st.html(f'<div class="mascot-face" title="{name}">{MASCOT_IMG}</div>')
+        with st.popover(f"Ask {name}", icon=":material/forum:"):
+            st.html(f'<div class="mascot-head">{MASCOT_IMG}<div><b>{name}</b><span>your TradeAdvisor guide · '
+                    'answers aloud · can open pages and run analyses</span></div></div>')
+            if not s.mascot_chat:
+                st.chat_message("assistant", avatar="🐂").write(
+                    f"Hi, I'm {name}! Ask me about any stock, IPO, fund or how this site works. Try "
+                    "\"analyze jain irrigation\", \"did Reliance beat estimates?\" or \"take me to IPOs\".")
+            for h in s.mascot_chat[-10:]:
+                st.chat_message("user" if h["role"] == "user" else "assistant", avatar=None if h["role"] == "user" else "🐂").write(h["text"])
+            with st.form("mascot_form", clear_on_submit=True, border=False):
+                c1, c2 = st.columns([5, 1], vertical_alignment="bottom")
+                typed = c1.text_input("Ask", placeholder=f"Ask {name}…", label_visibility="collapsed")
+                sent = c2.form_submit_button("Ask", type="primary")
+            spoken = st.audio_input("Or ask by voice", key=f"mascot_mic_{s.mascot_mic_n}")
+            c1, c2 = st.columns(2)
+            c1.toggle("Speak answers", value=True, key="mascot_voice")
+            if c2.button("Clear chat", disabled=not s.mascot_chat):
+                s.mascot_chat = []
+                st.rerun()
+    question = typed.strip() if sent and typed.strip() else None
+    if not question and not spoken:
+        return
+    with st.spinner(f"{name} is thinking…"):
+        audio_in = (spoken.getvalue(), spoken.type or "audio/wav") if spoken and not question else None
+        reply, actions, transcript = mascot.ask(s.mascot_chat, question or "", _mascot_context(), audio_in)
+        s.mascot_chat += [{"role": "user", "text": transcript or question or "🎤"}, {"role": "model", "text": reply}]
+        if s.get("mascot_voice", True):
+            s.mascot_audio = mascot.speak(reply)
+    s.mascot_bubble = reply
+    s.mascot_mic_n += 1  # a fresh recorder, so the same clip isn't asked twice
+    for a in actions:
+        if "result" in a:
+            s.result, s.goto_symbol = a["result"], a["symbol"]
+        if "goto" in a:
+            s.goto = a["goto"]
+    st.rerun()
 
 
 def brief_tab():
