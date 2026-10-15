@@ -47,7 +47,7 @@ PERSIST = ("symbol", "exchange", "vatsal_mode", "advisors", "use_llm", "min_rr",
            "opp_opts", "strat_preset", "strat_w", "strat_lots", "mkt_pick", "mkt_group", "sec_rel", "ev_fo", "brief_uni",
            "brief_rr", "brief_cap", "sc_strike", "sc_kind", "bt_sym", "bt_adv", "bt_period", "bt_exch", "bt_long", "bt_short",
            "bt_stop", "bt_target", "bt_cost", "bt_shorts", "ipo_kind", "ipo_view", "ipo_days",
-           "ob_uni", "ob_sym", "com_sym", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym")
+           "ob_uni", "ob_sym", "com_sym", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view")
 for k in PERSIST:
     if k in st.session_state:
         st.session_state[k] = st.session_state[k]
@@ -159,61 +159,77 @@ if tab_an.open:
             if result["errors"]:
                 st.html('<div class="alert">Some data was unavailable: ' + "".join(
                     f"<div><b>{views.e(k)}</b> — {views.e(v)}</div>" for k, v in result["errors"].items()) + "</div>")
-            st.html(views.context_strip(m, history.iv_rank(result["symbol"], m.get("atm_iv"))))
-            st.html(views.signals_panel(m))
-            st.html('<div class="sec">Verdicts</div>' + views.verdicts(result))
-            tabs.results_view(result["symbol"])
-            if vmode:
-                st.html(views.vatsal_panel(m))
-            if result.get("option_pick"):
-                st.html(views.option_buy(result["option_pick"], m))
-
-            # ---- trade setups: every setup from the levels in play, with option legs where a chain exists ----
+            # everything below the chart, one topic at a time; only the open sub-tab is built
             chain, opick = result.get("chain"), result.get("option_pick")
             pick_cfg = data.load_settings()["option_pick"]
-            if m.get("atr"):
-                found = setups.underlying_setups(m, m["atr"], vmode)
-                bias = m.get("vs_bias") if vmode else (1 if m.get("close", 0) > m.get("ema_200", 0) else -1)
-                items = [(x | {"verdict": setups.setup_verdict(x, bias)},
-                          setups.option_legs(x, chain, m["spot"], m["expiry"], pick_cfg) if chain and m.get("expiry") else [])
-                         for x in found]
-                st.html(views.setups(items, bias, vmode))
-
-            # ---- check any strike ----
             pending = st.session_state.get("pending_strike")
-            if pending and pending[0] == result["symbol"] and not chain:
-                st.warning(f"Couldn't check {pending[1]:g} {pending[2]}: the NSE option chain didn't load for {result['symbol']} "
-                           "(it has no F&O contracts, or NSE refused the connection). Try Get verdict again.")
-            if chain and m.get("expiry"):
-                st.html('<div class="sec">Check a strike<span class="muted">study any CE/PE in this chain against your settings'
-                        '</span></div>')
-                strikes = sorted(r["strike"] for r in chain)
-                gaps = [b - a for a, b in zip(strikes, strikes[1:]) if b > a]
-                if st.session_state.get("sc_for") != result["symbol"]:  # new symbol: start the box at its ATM strike
-                    st.session_state.sc_for = result["symbol"]
-                    st.session_state.sc_strike = float(opick["atm"]) if opick else strikes[len(strikes) // 2]
-                if pending and pending[0] == result["symbol"]:  # typed like "NIFTY 22700 PE": check it straight away
-                    st.session_state.sc_strike, st.session_state.sc_kind = pending[1], pending[2]
-                    st.session_state.strike_res = (result["symbol"], setups.check_strike(
-                        chain, m["spot"], m["expiry"], pending[1], pending[2], m, result["verdicts"], pick_cfg, vatsal_mode=vmode))
-                    st.session_state.pending_strike = None
-                with st.form("strike_form", border=False), st.container(key="panel-strike"):
-                    f1, f2, f3 = st.columns([2, 1.2, 1.2], vertical_alignment="bottom")
-                    strike = f1.number_input("Strike", key="sc_strike", step=float(min(gaps)) if gaps else 1.0, format="%.2f")
-                    kind = f2.segmented_control("Side", ["CE", "PE"], default="CE", key="sc_kind") or "CE"
-                    go = f3.form_submit_button("Check strike", type="primary", width="stretch")
-                if go:
-                    st.session_state.strike_res = (result["symbol"], setups.check_strike(
-                        chain, m["spot"], m["expiry"], float(strike), kind, m, result["verdicts"], pick_cfg, vatsal_mode=vmode))
-                res = st.session_state.get("strike_res")
-                if res and res[0] == result["symbol"]:
-                    st.html(views.strike_check(res[1]))
-            if result.get("report"):
-                st.html(views.report(result["report"]))
-            st.html(views.metrics(m))
-            with st.expander(f"History for {result['symbol']} (saved daily)"):
-                tabs.history_view(result["symbol"])
-        st.caption("Tip: type a symbol with a strike to check that option straight away, e.g. NIFTY 22700 PE or RELIANCE 1200 CE.")
+            if pending and pending[0] == result["symbol"]:  # typed like "NIFTY 22700 PE": open its check straight away
+                st.session_state.an_view = "Options"
+            v_tab, s_tab, r_tab, t_tab, o_tab, k_tab = st.tabs(
+                ["Verdicts", "Signals", "Results & holding", "Trade setups", "Options", "Key levels"], key="an_view", on_change="rerun")
+            if v_tab.open:
+                with v_tab:
+                    if result.get("report"):
+                        st.html(views.report(result["report"]))
+                    st.html('<div class="sec">Verdicts</div>' + views.verdicts(result))
+                    if vmode:
+                        st.html(views.vatsal_panel(m))
+                    st.html(views.context_strip(m, history.iv_rank(result["symbol"], m.get("atm_iv"))))
+            if s_tab.open:
+                with s_tab:
+                    st.html(views.signals_panel(m))
+            if r_tab.open:
+                with r_tab:
+                    tabs.results_view(result["symbol"])
+            if t_tab.open:
+                with t_tab:
+                    if m.get("atr"):  # every setup from the levels in play, with option legs where a chain exists
+                        found = setups.underlying_setups(m, m["atr"], vmode)
+                        bias = m.get("vs_bias") if vmode else (1 if m.get("close", 0) > m.get("ema_200", 0) else -1)
+                        items = [(x | {"verdict": setups.setup_verdict(x, bias)},
+                                  setups.option_legs(x, chain, m["spot"], m["expiry"], pick_cfg) if chain and m.get("expiry") else [])
+                                 for x in found]
+                        st.html(views.setups(items, bias, vmode))
+                    else:
+                        st.info("Trade setups need the daily candles, which didn't load for this symbol.")
+            if o_tab.open:
+                with o_tab:
+                    if result.get("option_pick"):
+                        st.html(views.option_buy(result["option_pick"], m))
+                    if pending and pending[0] == result["symbol"] and not chain:
+                        st.warning(f"Couldn't check {pending[1]:g} {pending[2]}: the NSE option chain didn't load for {result['symbol']} "
+                                   "(it has no F&O contracts, or NSE refused the connection). Try Get verdict again.")
+                    if chain and m.get("expiry"):
+                        st.html('<div class="sec">Check a strike<span class="muted">any CE/PE in this chain against your settings'
+                                '</span></div>')
+                        strikes = sorted(r["strike"] for r in chain)
+                        gaps = [b - a for a, b in zip(strikes, strikes[1:]) if b > a]
+                        if st.session_state.get("sc_for") != result["symbol"]:  # new symbol: start the box at its ATM strike
+                            st.session_state.sc_for = result["symbol"]
+                            st.session_state.sc_strike = float(opick["atm"]) if opick else strikes[len(strikes) // 2]
+                        if pending and pending[0] == result["symbol"]:
+                            st.session_state.sc_strike, st.session_state.sc_kind = pending[1], pending[2]
+                            st.session_state.strike_res = (result["symbol"], setups.check_strike(
+                                chain, m["spot"], m["expiry"], pending[1], pending[2], m, result["verdicts"], pick_cfg, vatsal_mode=vmode))
+                            st.session_state.pending_strike = None
+                        with st.form("strike_form", border=False), st.container(key="panel-strike"):
+                            f1, f2, f3 = st.columns([2, 1.2, 1.2], vertical_alignment="bottom")
+                            strike = f1.number_input("Strike", key="sc_strike", step=float(min(gaps)) if gaps else 1.0, format="%.2f")
+                            kind = f2.segmented_control("Side", ["CE", "PE"], default="CE", key="sc_kind") or "CE"
+                            go = f3.form_submit_button("Check strike", type="primary", width="stretch")
+                        if go:
+                            st.session_state.strike_res = (result["symbol"], setups.check_strike(
+                                chain, m["spot"], m["expiry"], float(strike), kind, m, result["verdicts"], pick_cfg, vatsal_mode=vmode))
+                        res = st.session_state.get("strike_res")
+                        if res and res[0] == result["symbol"]:
+                            st.html(views.strike_check(res[1]))
+                    elif not result.get("option_pick"):
+                        st.info(f"No option chain for {result['symbol']}: it has no F&O contracts, or NSE didn't answer.")
+            if k_tab.open:
+                with k_tab:
+                    st.html(views.metrics(m))
+                    with st.expander(f"History for {result['symbol']} (saved daily)"):
+                        tabs.history_view(result["symbol"])
         st.html('<div class="footer">Verdicts come only from your rules. Nothing here places orders. Not investment advice.</div>')
 
 
@@ -310,7 +326,8 @@ def rules_tab(r):
 
     live, action = [], None
     for ai, a in enumerate(draft):
-        with st.container(key=f"panel{ai}"):
+        summary = " → ".join(l["label"] for l in a["labels"] if l["label"]) + f" · else {a['def']}"
+        with st.expander(f"**{a['name'].replace('_', ' ').title()}** · {summary}"), st.container(key=f"panel{ai}"):
             c1, c2, c3, c4 = st.columns([2, 2, 2, 0.5], vertical_alignment="bottom")
             name = c1.text_input("Advisor", a["name"], key=f"{ver}:{ai}:name")
             dflt = c3.text_input("If nothing matches", a["def"], key=f"{ver}:{ai}:def")

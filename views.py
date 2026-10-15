@@ -263,6 +263,8 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .credit { position: fixed; left: 16px; bottom: 10px; z-index: 999; font-size: 11px; color: var(--muted); letter-spacing: .02em;
   background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
 .credit b { color: var(--text); font-weight: 600; }
+details.fold { margin-top: 10px; } details.fold > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0; }
+details.fold > summary:hover { color: var(--text); } details.fold[open] > summary { margin-bottom: 8px; }
 </style>
 """
 
@@ -481,7 +483,8 @@ def option_buy(p, m):
             f'(Black-Scholes). Change these filters on the Indicators tab.</p>')
     return (f'{head}<section class="panel obuy"><div class="osignal">{badge}<span class="muted">{note}</span></div>'
             f'<div class="olegs">{_leg(p["CE"], "CE", sig)}{_leg(p["PE"], "PE", sig)}</div>'
-            f'<div class="levels">{levels}</div>{table}{foot}</section>')
+            f'<div class="levels">{levels}</div><details class="fold"><summary>Full option chain around ATM</summary>{table}</details>'
+            f'{foot}</section>')
 
 
 def report(text):
@@ -547,20 +550,21 @@ def signals_panel(m):
     label = "BULLISH" if score >= 3 else "BEARISH" if score <= -3 else "MIXED"
     total = max(1, bull + bear)
 
-    def col(side, title, cls):
-        items = [(m.get(f"sig_{k}") == 1, lab) for k, sd, lab in sigmod.SIGNALS if sd == side]
-        items.sort(key=lambda x: not x[0])  # active first
-        return (f'<div class="{cls}"><h4 class="{"up" if side == "bull" else "down"}">{title} · {sum(a for a, _ in items)}</h4><ul>'
-                + "".join(f'<li class="{"on" if a else ""}"><i></i>{e(lab)}</li>' for a, lab in items) + "</ul></div>")
+    def col(side, title, cls, active):
+        items = [lab for k, sd, lab in sigmod.SIGNALS if sd == side and (m.get(f"sig_{k}") == 1) == active]
+        head = f'<h4 class="{"up" if side == "bull" else "down"}">{title} · {len(items)}</h4>' if active else ""
+        body = "".join(f'<li class="{"on" if active else ""}"><i></i>{e(lab)}</li>' for lab in items) or '<li class="muted">none</li>'
+        return f'<div class="{cls}">{head}<ul>{body}</ul></div>'
 
-    return (f'<div class="sec">Signals<span class="muted">breakouts, breakdowns, MACD, RSI, Supertrend, volume · daily candles '
-            f'unless marked intraday · 20-day resistance {fmt(m.get("resistance_20d"))} / support {fmt(m.get("support_20d"))}</span></div>'
+    off = sum(1 for k, _, _ in sigmod.SIGNALS if m.get(f"sig_{k}") != 1)
+    return (f'<div class="sec">Signals<span class="muted">20-day resistance {fmt(m.get("resistance_20d"))} · '
+            f'support {fmt(m.get("support_20d"))}</span></div>'
             f'<section class="panel"><div class="osignal">{badge_html(label)}<span class="mono">score {score:+d}</span>'
             f'<span class="muted">{bull} bullish · {bear} bearish active</span></div>'
             f'<div class="meterbar"><i class="b" style="width:{bull / total * 100:.0f}%"></i><i class="s" style="width:{bear / total * 100:.0f}%"></i></div>'
-            f'<div class="sigs">{col("bull", "Bullish", "bull")}{col("bear", "Bearish", "bear")}</div>'
-            '<p class="note">Each signal is also a rule metric (sig_resistance_break, sig_macd_above_signal, sig_rsi_oversold …, '
-            'plus sig_score = bullish − bearish) for the Rules tab.</p></section>')
+            f'<div class="sigs">{col("bull", "Bullish", "bull", True)}{col("bear", "Bearish", "bear", True)}</div>'
+            f'<details class="fold"><summary>{off} inactive signals</summary>'
+            f'<div class="sigs">{col("bull", "Bullish", "bull", False)}{col("bear", "Bearish", "bear", False)}</div></details></section>')
 
 
 def _dir_label(v, up="BULLISH", down="BEARISH"):
@@ -624,12 +628,14 @@ def setups(items, bias, vatsal_mode):
                       f'<h3>{st["side"].title()} · {e(st["kind"])}</h3>{tag}<span class="rr {rr_c}">R:R {fmt(st["rr"])}</span></header>'
                       f'<div class="plan">{plan}</div><p class="note">{e(act_why)} · risk {fmt(st["risk_pct"])}% of price.</p>{table}</article>'))
     cards.sort(key=lambda c: c[:3])
+    good, avoid = [c[3] for c in cards if not c[0]], [c[3] for c in cards if c[0]]
     levels_src = "option walls, VWAP, EMAs, day high/low" + (", your pivots, fib and supply/demand zones" if vatsal_mode else "")
-    return ('<div class="sec">Trade setups<span class="muted">arithmetic on your levels, not advice. Check them before acting</span></div>'
-            f'<div class="setups">{"".join(c[3] for c in cards)}</div>'
-            f'<p class="note">Levels used: {levels_src}. Stops sit just beyond the nearest level behind the entry; targets are the next '
-            'levels ahead. Option premiums at stop/target are Black-Scholes estimates on each strike\'s own IV, anchored to its '
-            'live price, assuming the move happens today (time decay would lower them).</p>')
+    return ('<div class="sec">Trade setups<span class="muted">arithmetic on your levels, not advice</span></div>'
+            + (f'<div class="setups">{"".join(good)}</div>' if good else '<p class="note">No setup meets your reward:risk right now.</p>')
+            + (f'<details class="fold"><summary>{len(avoid)} setup{"s" if len(avoid) != 1 else ""} below your reward:risk (AVOID)'
+               f'</summary><div class="setups">{"".join(avoid)}</div></details>' if avoid else "")
+            + f'<p class="note">Levels used: {levels_src}. Stops sit beyond the nearest level behind the entry; targets are the next '
+            'levels ahead. Option premiums at stop/target are Black-Scholes estimates assuming the move happens today.</p>')
 
 
 def strike_check(r):
