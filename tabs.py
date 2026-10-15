@@ -996,14 +996,17 @@ def mascot_widget():
             st.html(f'<div class="mascot-bubble">{e(short)}</div>')
         if audio := s.pop("mascot_audio", None):
             st.audio(audio, format="audio/wav", autoplay=True)
+        if dl := s.get("mascot_download"):
+            st.download_button(f"Download report · {dl['name'].split('_')[0]}", dl["data"], dl["name"], "application/pdf",
+                               icon=":material/download:", type="primary", key="mascot_dl")
         st.html(f'<div class="mascot-face" title="{name}">{MASCOT_IMG}</div>')
         with st.popover(f"Ask {name}", icon=":material/forum:"):
             st.html(f'<div class="mascot-head">{MASCOT_IMG}<div><b>{name}</b><span>your TradeAdvisor guide · '
                     'answers aloud · can open pages and run analyses</span></div></div>')
             if not s.mascot_chat:
                 st.chat_message("assistant", avatar="🐂").write(
-                    f"Hi, I'm {name}! Ask me about any stock, IPO, fund or how this site works. Try "
-                    "\"analyze NIFTY 50\" or \"did Reliance beat estimates?\".")
+                    f"Hi, I'm {name}! Ask me about any stock, IPO, fund or how this site works, or ask for a PDF "
+                    "report. Try \"analyze NIFTY 50\" or \"did Reliance beat estimates?\".")
             for h in s.mascot_chat[-10:]:
                 st.chat_message("user" if h["role"] == "user" else "assistant", avatar=None if h["role"] == "user" else "🐂").write(h["text"])
             with st.form("mascot_form", clear_on_submit=True, border=False):
@@ -1028,6 +1031,8 @@ def mascot_widget():
     s.mascot_bubble = reply
     s.mascot_mic_n += 1  # a fresh recorder, so the same clip isn't asked twice
     for a in actions:
+        if "download" in a:
+            s.mascot_download = a["download"]
         if "result" in a:
             s.result, s.goto_symbol = a["result"], a["symbol"]
         if "goto" in a:

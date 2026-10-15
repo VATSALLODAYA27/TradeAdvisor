@@ -251,8 +251,23 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .mascot-head { display: flex; align-items: center; gap: 10px; } .mascot-head img { width: 40px; height: 40px; }
 .mascot-head b { font-size: 15px; } .mascot-head span { display: block; font-size: 11px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .mascot-face img { animation: none; } }
+
+/* ---- disclaimer ticker: scrolls right to left under the top bar ---- */
+.ticker { overflow: hidden; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2);
+  padding: 6px 0; margin: -4px 0 10px; font-size: 12px; color: var(--muted); }
+.ticker span { display: inline-block; padding-left: 100%; animation: ticker 45s linear infinite; }
+.ticker b { color: var(--warn); font-weight: 600; }
+.ticker:hover span { animation-play-state: paused; }
+@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) { .ticker span { animation: none; padding-left: 12px; } }
 </style>
 """
+
+TICKER = ('<div class="ticker" role="note" aria-label="Disclaimer"><span><b>Disclaimer:</b> TradeAdvisor gives rule-based '
+          'analysis for information and education only. It is not investment advice, and TradeAdvisor is not a SEBI-registered '
+          'investment adviser or research analyst. Verdicts come only from your own rules applied to public data, which can be '
+          'delayed or wrong. Investing involves risk, including loss of capital. Do your own research or consult a SEBI-registered '
+          'adviser before acting.</span></div>')
 
 # Taursa, the site mascot: a bull (green, up) and a bear (red, down) sharing one badge, with a price line between them.
 MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Taursa, the bull and bear mascot">
@@ -486,6 +501,11 @@ def metrics(m):
         "Fibonacci": [(f"Fib {k[4] + '.' + k[5:] if len(k) > 5 else k[4:]}", k) for k in fibs],
         "Supply & demand": [("Supply zone top", "supply_top"), ("Supply zone bottom", "supply_bottom"),
                             ("Demand zone top", "demand_top"), ("Demand zone bottom", "demand_bottom")],
+        "Valuation & fundamentals": [("P/E", "val_pe"), ("P/B", "val_pb"), ("Book value ₹", "val_book_value"),
+                                     ("Face value ₹", "val_face_value"), ("Dividend yield %", "val_div_yield"),
+                                     ("Market cap ₹ cr", "val_market_cap_cr"), ("Revenue TTM ₹ cr", "val_sales_ttm_cr"),
+                                     ("EBITDA TTM ₹ cr", "val_ebitda_ttm_cr"), ("PAT TTM ₹ cr", "val_pat_ttm_cr"),
+                                     ("EPS TTM ₹", "val_eps_ttm"), ("ROE %", "val_roe"), ("ROCE %", "val_roce")],
     }
     out = []
     for g, items in groups.items():

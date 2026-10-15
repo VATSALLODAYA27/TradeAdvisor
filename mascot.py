@@ -11,6 +11,8 @@ import math
 import os
 import re
 import wave
+from datetime import date
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import requests
@@ -52,7 +54,10 @@ Verdicts are BUY / SELL / AVOID etc. and come ONLY from the user's own rules; yo
 Describe only the features listed above; if asked for something the site doesn't do (e.g. fund holdings, placing
 orders), say so plainly.
 
-Use the tools for any live number; never invent prices, targets or verdicts. To show the user something, open the tab or
+Use the tools for any live number; never invent prices, targets or verdicts. When a question needs several lookups,
+call all the tools you need in the same turn; they run together. When the user asks for a report, document or PDF on a
+stock, use create_report: it builds a PDF on the TradeAdvisor letterhead with a disclaimer, and a "Download report"
+button appears next to you. To show the user something, open the tab or
 run the analysis with a tool, then tell them what you did. If asked "should I buy/sell", give the site's rule-based
 verdict and the key numbers, and say you are not a SEBI-registered adviser and this is not investment advice."""
 
@@ -66,6 +71,10 @@ TOOLS = [{"function_declarations": [
     {"name": "stock_research", "description": "A stock's latest results (QoQ/YoY growth, EPS vs estimate, next results date), "
      "shareholding (promoters/FII/DII/public and changes), analyst ratings and targets, and news mood with top headlines.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "create_report", "description": "Build a downloadable PDF report on the TradeAdvisor letterhead for a stock: "
+     "snapshot, chart, every verdict and rule, results, shareholding, valuation, trade setups and a disclaimer.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "symbol or company name"}},
+                    "required": ["query"]}},
     {"name": "ipo_list", "description": "Open and upcoming IPOs with GMP, subscription, key financials and the IPO verdict.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "market_overview", "description": "NIFTY 50, India VIX, advance/decline, FII/DII flows and the latest market headlines.",
@@ -123,6 +132,26 @@ def run_tool(name, args):
         result = {"symbol": sym, "exchange": ex, **_clip(m, ["price", "close", "day_change_pct", "rsi", "high_52w", "low_52w", "pe"]),
                   "verdicts": {n: v["verdict"] for n, v in out["verdicts"].items()}}
         return result, {"goto": "Analyze", "result": out | {"order": STOCK_ADVISORS}, "symbol": sym}
+    if name == "create_report":
+        import yfinance as yf
+
+        import report
+        import results
+        result, action = run_tool("analyze_stock", args)
+        if "error" in result:
+            return result, None
+        sym, out = action["symbol"], action["result"]
+        res, rm = results.summary(sym)
+        tk = yf.Ticker(data.yf_symbol(sym, out["exchange"]))
+        d = tk.history(period="2y")
+        try:
+            name = tk.info.get("longName") or sym
+        except Exception:
+            name = sym
+        pdf = report.build(out, d, name, res, rm)
+        fname = f"{sym}_TradeAdvisor_report_{date.today():%Y-%m-%d}.pdf"
+        return ({"report": "ready", "file": fname, "pages_note": "download button is next to Taursa", **result},
+                action | {"download": {"name": fname, "data": pdf}})
     if name == "stock_research":
         import news
         import results
@@ -182,12 +211,17 @@ def ask(history, text, context="", audio=None):
             reply = "".join(p.get("text", "") for p in content.get("parts", []) if not p.get("thought")).strip()
             return reply or "Done.", actions, transcript
         contents.append(content)  # sent back as-is: newer models attach thought signatures to their calls
-        parts = []
-        for c in calls:
+
+        def one(c):
             try:
-                result, action = run_tool(c["name"], c.get("args", {}))
+                return run_tool(c["name"], c.get("args", {}))
             except Exception as ex:
-                result, action = {"error": f"{type(ex).__name__}: {ex}"}, None
+                return {"error": f"{type(ex).__name__}: {ex}"}, None
+
+        with ThreadPoolExecutor(min(4, len(calls))) as pool:  # the orchestrator: independent lookups run together
+            done = list(pool.map(one, calls))
+        parts = []
+        for c, (result, action) in zip(calls, done):
             if action:
                 actions.append(action)
             parts.append({"functionResponse": {"name": c["name"], "response": json.loads(json.dumps(result, default=str))}})
