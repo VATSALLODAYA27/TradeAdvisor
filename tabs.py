@@ -23,7 +23,7 @@ import orderblock
 import scanner
 import strategies
 from setups import years_to
-from views import MASCOT_IMG, chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
+from views import MASCOT_IMG, MASCOT_STYLE, chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -999,8 +999,8 @@ def mascot_widget():
         if dl := s.get("mascot_download"):
             st.download_button(f"Download report · {dl['name'].split('_')[0]}", dl["data"], dl["name"], "application/pdf",
                                icon=":material/download:", type="primary", key="mascot_dl")
-        st.html(f'<div class="mascot-face" title="{name}">{MASCOT_IMG}</div>')
-        with st.popover(f"Ask {name}", icon=":material/forum:"):
+        st.html(MASCOT_STYLE)
+        with st.popover(f"Ask {name}"):
             st.html(f'<div class="mascot-head">{MASCOT_IMG}<div><b>{name}</b><span>your TradeAdvisor guide · '
                     'answers aloud · can open pages and run analyses</span></div></div>')
             if not s.mascot_chat:
