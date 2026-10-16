@@ -1,6 +1,7 @@
 """Streamlit tabs: Opportunities (scanner), Market (NSE scanners), Journal (your trades dashboard), Paper Trading, Learn."""
 import re
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime
 
 import pandas as pd
 import yfinance as yf
@@ -1165,26 +1166,33 @@ def _safe(fn, *a):
         return None
 
 
+def _live_quote(p):
+    """Latest price for a position. Options read the shared 15 s chain cache, so many legs cost one NSE call."""
+    if p.get("kind") and datetime.strptime(p["expiry"], "%d-%b-%Y").date() >= date.today():
+        row = next(r for r in _paper_chain(p["symbol"])["_chain"] if r["strike"] == p["strike"])
+        return float(row[p["kind"]]["ltp"])
+    return paper.quote(p)
+
+
 def _paper_prices(acct):
     """{position id: latest price}; a position whose quote fails is left out and named in a warning."""
     with ThreadPoolExecutor(8) as pool:
-        got = list(pool.map(lambda p: _safe(paper.quote, p), acct["positions"]))
+        got = list(pool.map(lambda p: _safe(_live_quote, p), acct["positions"]))
     if bad := [p["instrument"] for p, px in zip(acct["positions"], got) if px is None]:
         st.warning(f"No price right now for: {', '.join(bad)}")
     return {p["id"]: px for p, px in zip(acct["positions"], got) if px is not None}
 
 
-def paper_tab():
+@st.fragment(run_every=15)
+def _live_book():
+    """Account KPIs and open positions, re-priced every 15 s; stops and targets close on their own."""
     acct = paper.load()
-    st.html('<div class="sec">Paper trading<span class="muted">practise with dummy money · live NSE/BSE prices · '
-            'nothing reaches a broker · saved in paper.json</span></div>')
-    if st.button("Refresh prices", type="primary") or "paper_px" not in st.session_state:
-        st.session_state.paper_px = _paper_prices(acct)
-        if done := paper.check_exits(acct, st.session_state.paper_px):
-            paper.save(acct)
-            for inst, why, p in done:
-                st.toast(f"{inst}: {why} hit, P&L ₹{p:,.0f}")
-    px = st.session_state.paper_px
+    st.session_state.paper_px = px = _paper_prices(acct)
+    if done := paper.check_exits(acct, px):
+        paper.save(acct)
+        for inst, why, p in done:
+            st.toast(f"{inst}: {why} hit, P&L ₹{p:,.0f}")
+        st.rerun(scope="app")  # closed-trade stats below the fragment need the new trade too
     open_pl = sum(paper.pnl(p, px[p["id"]]) for p in acct["positions"] if p["id"] in px)
     blocked = sum(paper.blocked(p) for p in acct["positions"])
     realised = sum(c["pnl"] for c in acct["closed"])
@@ -1195,6 +1203,41 @@ def paper_tab():
            ("Dummy money added", f"₹{acct['deposited']:,.0f}", ""),
            ("Overall return", f"{(equity / acct['deposited'] - 1) * 100:+.2f}%", sign(equity - acct["deposited"])),
            ("Closed trades", len(acct["closed"]), "")])
+    c1, c2 = st.columns([1, 5], vertical_alignment="center")
+    c1.button("Refresh now", type="primary")  # any click reruns this fragment
+    c2.caption(f"Live: prices update every 15 s · last update {datetime.now():%H:%M:%S} · Yahoo stock bars lag a few minutes, "
+               "NSE option prices are near real time")
+    if not acct["positions"]:
+        st.html('<div class="empty">No open positions. New here? Read <b>Learn → Basics</b> first, then place your first paper trade below '
+                'with a stop-loss and a target.</div>')
+        return
+    st.html('<div class="sec">Open positions</div>')
+    pct = lambda p: (px[p["id"]] / p["entry"] - 1) * 100 * (1 if p["side"] == "BUY" else -1)
+    st.dataframe(pd.DataFrame([{
+        "#": p["id"], "instrument": p["instrument"], "side": p["side"], "qty": p["qty"], "entry": p["entry"], "ltp": px.get(p["id"]),
+        "stop": p["stop"], "target": p["target"], "P&L ₹": round(paper.pnl(p, px[p["id"]])) if p["id"] in px else None,
+        "P&L %": round(pct(p), 2) if p["id"] in px else None, "opened": p["opened"]} for p in acct["positions"]]),
+        hide_index=True, width="stretch")
+    label = {p["id"]: f"#{p['id']} {p['side']} {p['qty']} {p['instrument']}" for p in acct["positions"]}
+    c1, c2, _ = st.columns([2, 1, 3], vertical_alignment="bottom")
+    pick = c1.selectbox("Close position", list(label), format_func=label.get, key="pp_close")
+    if c2.button("Close at market", width="stretch"):
+        pos = next(p for p in acct["positions"] if p["id"] == pick)
+        price = _safe(paper.quote, pos)
+        if price is None:
+            st.error("Couldn't get a live price to close at; try again.")
+        else:
+            p = paper.close_position(acct, pick, price)
+            paper.save(acct)
+            st.toast(f"Closed {pos['instrument']} @ ₹{price:,.2f}, P&L ₹{p:,.0f}")
+            st.rerun(scope="app")
+
+
+def paper_tab():
+    acct = paper.load()
+    st.html('<div class="sec">Paper trading<span class="muted">practise with dummy money · live NSE/BSE prices · '
+            'nothing reaches a broker · saved in paper.json</span></div>')
+    _live_book()
 
     with st.expander("Add dummy money / reset"):
         c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom")
@@ -1234,7 +1277,6 @@ def paper_tab():
                     pos = paper.open_position(acct, sym, side, qty, paper.stock_price(sym, exch), exch, stop=stop, target=target,
                                               fx=paper.to_inr(paper.currency(sym)))
             paper.save(acct)
-            px[pos["id"]] = pos["entry"]
             st.session_state.pp_view = sym
             st.toast(f"Filled: {side} {pos['qty']} {pos['instrument']} @ {pos['entry']:,.4f}")
             st.rerun()
@@ -1244,31 +1286,6 @@ def paper_tab():
                      "Wait a few seconds and place the order again." if nse_block else f"Order not placed: {ex}")
 
     _watch(acct)
-
-    if acct["positions"]:
-        st.html('<div class="sec">Open positions</div>')
-        pct = lambda p: (px[p["id"]] / p["entry"] - 1) * 100 * (1 if p["side"] == "BUY" else -1)
-        st.dataframe(pd.DataFrame([{
-            "#": p["id"], "instrument": p["instrument"], "side": p["side"], "qty": p["qty"], "entry": p["entry"], "ltp": px.get(p["id"]),
-            "stop": p["stop"], "target": p["target"], "P&L ₹": round(paper.pnl(p, px[p["id"]])) if p["id"] in px else None,
-            "P&L %": round(pct(p), 2) if p["id"] in px else None, "opened": p["opened"]} for p in acct["positions"]]),
-            hide_index=True, width="stretch")
-        label = {p["id"]: f"#{p['id']} {p['side']} {p['qty']} {p['instrument']}" for p in acct["positions"]}
-        c1, c2, _ = st.columns([2, 1, 3], vertical_alignment="bottom")
-        pick = c1.selectbox("Close position", list(label), format_func=label.get)
-        if c2.button("Close at market", width="stretch"):
-            pos = next(p for p in acct["positions"] if p["id"] == pick)
-            price = _safe(paper.quote, pos)
-            if price is None:
-                st.error("Couldn't get a live price to close at; try again.")
-            else:
-                p = paper.close_position(acct, pick, price)
-                paper.save(acct)
-                st.toast(f"Closed {pos['instrument']} @ ₹{price:,.2f}, P&L ₹{p:,.0f}")
-                st.rerun()
-    else:
-        st.html('<div class="empty">No open positions. New here? Read <b>Learn → Basics</b> first, then place your first paper trade above '
-                'with a stop-loss and a target.</div>')
 
     if acct["closed"]:
         cl = pd.DataFrame(acct["closed"])
@@ -1389,7 +1406,7 @@ def _paper_candles(symbol, exchange):
     return {iv: c for iv, c in got.items() if c and c["time"]}
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner=False)
 def _paper_chain(symbol):
     return data.option_metrics(symbol)
 

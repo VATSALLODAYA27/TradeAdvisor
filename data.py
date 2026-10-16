@@ -1,6 +1,7 @@
 """Free NSE/BSE data -> one flat dict of metrics. Rules in rules.toml refer to these keys."""
 import functools
 import json
+import threading
 import time
 import numbers
 from concurrent.futures import ThreadPoolExecutor
@@ -29,18 +30,31 @@ NSE.headers.update({
 })
 
 
+_NSE_RESET = threading.Lock()
+
+
+def _nse_reset(stale):
+    """Fresh cookies and connections, once: threads that hit the same block wait here instead of all re-handshaking."""
+    with _NSE_RESET:
+        if NSE.cookies.get_dict() != stale:  # another thread already reset while this one waited
+            return
+        NSE.cookies.clear()
+        NSE.close()  # drop pooled connections too; NSE's bot filter can flag a long-lived one
+        for page in ("", "option-chain"):
+            NSE.get(f"https://www.nseindia.com/{page}", headers={"Accept": "text/html"}, timeout=10)
+
+
 def nse(path, tries=4):
     # ponytail: unofficial NSE endpoints, no auth; they break when NSE changes its site. Swap for a broker feed then.
     for attempt in range(tries):
         try:
+            stale = NSE.cookies.get_dict()
             r = NSE.get(f"https://www.nseindia.com/api/{path}", timeout=10)
             if r.status_code in (401, 403) and attempt < tries - 1:
-                # NSE answers some endpoints only with fresh site cookies (always so from cloud servers): drop the stale
-                # ones, load the home page and the option-chain page like a browser would, then retry
-                NSE.cookies.clear()
-                for page in ("", "option-chain"):
-                    NSE.get(f"https://www.nseindia.com/{page}", headers={"Accept": "text/html"}, timeout=10)
-                time.sleep(attempt + 1)
+                # NSE answers some endpoints only with fresh site cookies, and they expire in a long-running app:
+                # reset them like a browser loading the site, then retry
+                _nse_reset(stale)
+                time.sleep(attempt)
                 continue
             r.raise_for_status()
             return r.json()
