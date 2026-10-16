@@ -1,4 +1,4 @@
-"""Streamlit tabs: Opportunities (scanner), Market (NSE scanners), Journal (your trades dashboard)."""
+"""Streamlit tabs: Opportunities (scanner), Market (NSE scanners), Journal (your trades dashboard), Paper Trading, Learn."""
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -15,13 +15,16 @@ import data
 import history
 import ipo
 import journal
+import learn
 import market
 import mascot
 import mf
 import news
 import results
 import orderblock
+import paper
 import scanner
+import setups
 import strategies
 from setups import years_to
 from views import MASCOT_IMG, MASCOT_STYLE, chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
@@ -473,6 +476,11 @@ def backtest_tab(rules, vmode):
     if r["missing"]:
         st.warning(f"These metrics have no daily history, so rules using them never pass here: {', '.join(r['missing'])}. "
                    "Intraday, options, fundamentals and market metrics can't be backtested with free data.")
+    _bt_view(r)
+
+
+def _bt_view(r):
+    """KPIs, equity vs buy & hold, entries/exits and the trade list for a backtest.run / learn.run result."""
     s = r["stats"]
     pct = lambda v, sign=True: "—" if v is None else (f"{v:+.2f}%" if sign else f"{v:.1f}%")
     tone = lambda v: "" if v is None else ("up" if v > 0 else "down")
@@ -502,10 +510,9 @@ def backtest_tab(rules, vmode):
         fig2.update_layout(**{**CHART_LAYOUT, "height": 360}, title="Entries and exits", legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig2, width="stretch", config={"displaylogo": False})
         st.dataframe(tr, hide_index=True, width="stretch",
-                     column_config={"ret_pct": st.column_config.NumberColumn("Return %", format="%+.2f"),
-                                    "entry_date": st.column_config.DateColumn("Entry date"), "exit_date": st.column_config.DateColumn("Exit date")})
+                     column_config={"ret_pct": st.column_config.NumberColumn("Return %", format="%+.2f")})
     else:
-        st.info("No trades: the long label never fired in this window. Check the verdict labels or try a longer history.")
+        st.info("No trades: the buy signal never fired in this window. Try a longer history or another symbol.")
     st.caption("Fully invested per trade, returns compound, costs on both sides. Stops/targets are checked on daily highs/lows; "
                "a gap through them fills at the open, and a day touching both counts as the stop.")
 
@@ -1133,3 +1140,221 @@ def journal_tab():
         st.download_button("Download trades.csv", journal.FILE.read_bytes() if journal.FILE.exists() else b"", "trades.csv", "text/csv")
         with st.expander("By setup type"):
             st.dataframe(s["by_setup"].rename(columns={"count": "trades", "sum": "P&L ₹"}), width="stretch")
+
+
+# ---------- paper trading ----------
+
+def _kpis(items, cols=4):
+    st.html(f'<section class="panel"><div class="kpis" style="grid-template-columns:repeat({cols},1fr)">' + "".join(
+        f'<div><span>{k}</span><b class="{c}">{v}</b></div>' for k, v, c in items) + "</div></section>")
+
+
+def _safe(fn, *a):
+    try:
+        return fn(*a)
+    except Exception:
+        return None
+
+
+def _paper_prices(acct):
+    """{position id: latest price}; a position whose quote fails is left out and named in a warning."""
+    with ThreadPoolExecutor(8) as pool:
+        got = list(pool.map(lambda p: _safe(paper.quote, p), acct["positions"]))
+    if bad := [p["instrument"] for p, px in zip(acct["positions"], got) if px is None]:
+        st.warning(f"No price right now for: {', '.join(bad)}")
+    return {p["id"]: px for p, px in zip(acct["positions"], got) if px is not None}
+
+
+def paper_tab():
+    acct = paper.load()
+    st.html('<div class="sec">Paper trading<span class="muted">practise with dummy money · live NSE/BSE prices · '
+            'nothing reaches a broker · saved in paper.json</span></div>')
+    if st.button("Refresh prices", type="primary") or "paper_px" not in st.session_state:
+        st.session_state.paper_px = _paper_prices(acct)
+        if done := paper.check_exits(acct, st.session_state.paper_px):
+            paper.save(acct)
+            for inst, why, p in done:
+                st.toast(f"{inst}: {why} hit, P&L ₹{p:,.0f}")
+    px = st.session_state.paper_px
+    open_pl = sum(paper.pnl(p, px[p["id"]]) for p in acct["positions"] if p["id"] in px)
+    blocked = sum(p["qty"] * p["entry"] for p in acct["positions"])
+    realised = sum(c["pnl"] for c in acct["closed"])
+    equity = acct["cash"] + blocked + open_pl
+    sign = lambda v: "up" if v > 0 else "down" if v < 0 else ""
+    _kpis([("Equity", f"₹{equity:,.0f}", ""), ("Cash", f"₹{acct['cash']:,.0f}", ""), ("In positions", f"₹{blocked:,.0f}", ""),
+           ("Open P&amp;L", f"₹{open_pl:+,.0f}", sign(open_pl)), ("Realised P&amp;L", f"₹{realised:+,.0f}", sign(realised)),
+           ("Dummy money added", f"₹{acct['deposited']:,.0f}", ""),
+           ("Overall return", f"{(equity / acct['deposited'] - 1) * 100:+.2f}%", sign(equity - acct["deposited"])),
+           ("Closed trades", len(acct["closed"]), "")])
+
+    with st.expander("Add dummy money / reset"):
+        c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+        amt = c1.number_input("Amount ₹ (play money, add as much as you like)", 1000.0, 1e12, 1_000_000.0, 100_000.0, format="%.0f")
+        if c2.button("Add money", width="stretch"):
+            paper.add_funds(acct, amt)
+            paper.save(acct)
+            st.rerun()
+        if c3.button("Reset account", width="stretch", help="Start over with ₹10 lakh; deletes all paper trades"):
+            paper.save(paper.new())
+            st.session_state.pop("paper_px", None)
+            st.rerun()
+
+    with st.form("paper_order", border=False), st.container(key="panel-paper"):
+        st.markdown("**Place an order** · market order at the live price. Stock: `RELIANCE` · option: `NIFTY 25000 CE` (nearest expiry)")
+        c = st.columns([1.8, 0.8, 0.8, 0.9, 1, 1, 1], vertical_alignment="bottom")
+        typed = c[0].text_input("Symbol", placeholder="TCS or BANKNIFTY 56000 PE")
+        exch = c[1].selectbox("Exchange", ["NSE", "BSE"])
+        side = c[2].selectbox("Side", ["BUY", "SELL"])
+        qty = c[3].number_input("Qty / lots", 1, 10**7, 1, help="Shares for stocks, lots for options")
+        stop = c[4].number_input("Stop-loss", 0.0, 1e9, 0.0, 0.05, format="%.2f", help="0 = none")
+        target = c[5].number_input("Target", 0.0, 1e9, 0.0, 0.05, format="%.2f", help="0 = none")
+        go_ = c[6].form_submit_button("Place order", type="primary", width="stretch")
+    if go_ and typed.strip():
+        sym, strike, kind = setups.parse_query(typed)
+        if " " in sym and (found := data.resolve(sym)):
+            sym, exch = found
+        try:
+            with st.spinner("Getting the live price…"):
+                if strike:
+                    kind = kind or "CE"
+                    price, expiry, strike = paper.option_quote(sym, strike, kind)
+                    pos = paper.open_position(acct, sym, side, qty * (market.lot_size(sym) or 1), price, "NSE", kind, strike, expiry, stop, target)
+                else:
+                    pos = paper.open_position(acct, sym, side, qty, paper.stock_price(sym, exch), exch, stop=stop, target=target)
+            paper.save(acct)
+            px[pos["id"]] = pos["entry"]
+            st.toast(f"Filled: {side} {pos['qty']} {pos['instrument']} @ ₹{pos['entry']:,.2f}")
+            st.rerun()
+        except Exception as ex:
+            st.error(f"Order not placed: {ex}")
+
+    if acct["positions"]:
+        st.html('<div class="sec">Open positions</div>')
+        pct = lambda p: (px[p["id"]] / p["entry"] - 1) * 100 * (1 if p["side"] == "BUY" else -1)
+        st.dataframe(pd.DataFrame([{
+            "#": p["id"], "instrument": p["instrument"], "side": p["side"], "qty": p["qty"], "entry": p["entry"], "ltp": px.get(p["id"]),
+            "stop": p["stop"], "target": p["target"], "P&L ₹": round(paper.pnl(p, px[p["id"]])) if p["id"] in px else None,
+            "P&L %": round(pct(p), 2) if p["id"] in px else None, "opened": p["opened"]} for p in acct["positions"]]),
+            hide_index=True, width="stretch")
+        label = {p["id"]: f"#{p['id']} {p['side']} {p['qty']} {p['instrument']}" for p in acct["positions"]}
+        c1, c2, _ = st.columns([2, 1, 3], vertical_alignment="bottom")
+        pick = c1.selectbox("Close position", list(label), format_func=label.get)
+        if c2.button("Close at market", width="stretch"):
+            pos = next(p for p in acct["positions"] if p["id"] == pick)
+            price = _safe(paper.quote, pos)
+            if price is None:
+                st.error("Couldn't get a live price to close at; try again.")
+            else:
+                p = paper.close_position(acct, pick, price)
+                paper.save(acct)
+                st.toast(f"Closed {pos['instrument']} @ ₹{price:,.2f}, P&L ₹{p:,.0f}")
+                st.rerun()
+    else:
+        st.html('<div class="empty">No open positions. New here? Read <b>Learn → Basics</b> first, then place your first paper trade above '
+                'with a stop-loss and a target.</div>')
+
+    if acct["closed"]:
+        cl = pd.DataFrame(acct["closed"])
+        wins, losses = cl[cl["pnl"] > 0]["pnl"], cl[cl["pnl"] <= 0]["pnl"]
+        _kpis([("Win rate", f"{len(wins) / len(cl) * 100:.0f}%", ""), ("Avg win", f"₹{wins.mean() if len(wins) else 0:,.0f}", "up"),
+               ("Avg loss", f"₹{losses.mean() if len(losses) else 0:,.0f}", "down"),
+               ("Profit factor", fmt(wins.sum() / -losses.sum()) if losses.sum() < 0 else "—", "")])
+        fig = go.Figure(go.Scatter(x=list(range(1, len(cl) + 1)), y=cl["pnl"].cumsum(), mode="lines+markers",
+                                   line=dict(color=UP, width=2), hovertext=cl["instrument"]))
+        fig.update_layout(title="Cumulative realised P&L (₹) by closed trade", xaxis_title="trade #", **CHART_LAYOUT)
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+        st.dataframe(cl[["instrument", "side", "qty", "entry", "exit", "pnl", "why", "opened", "closed"]].iloc[::-1],
+                     hide_index=True, width="stretch")
+
+
+# ---------- learn ----------
+
+def _sizer():
+    c = st.columns(4)
+    cap = c[0].number_input("Capital ₹", 1000.0, 1e12, 500000.0, 10000.0, key="ps_cap")
+    risk = c[1].number_input("Risk %", 0.1, 10.0, 1.0, 0.1, key="ps_risk")
+    ent = c[2].number_input("Entry ₹", 0.05, 1e7, 1300.0, key="ps_entry")
+    sl = c[3].number_input("Stop ₹", 0.0, 1e7, 1265.0, key="ps_stop")
+    if ent != sl:
+        q = int(cap * risk / 100 // abs(ent - sl))
+        st.success(f"Quantity **{q:,}** · invests ₹{q * ent:,.0f} · loses ₹{q * abs(ent - sl):,.0f} if the stop hits "
+                   f"({q * abs(ent - sl) / cap * 100:.2f}% of capital)")
+
+
+def _options_view(r):
+    o = r["options"]
+    st.markdown(f"**{r['title']} · as ATM options** (quantity {r['lot']} per trade)")
+    if o.empty:
+        st.info("No trades in this window.")
+    else:
+        w, l_ = o[o["pnl_rs"] > 0]["pnl_rs"], o[o["pnl_rs"] <= 0]["pnl_rs"]
+        cum, total = o["pnl_rs"].cumsum(), o["pnl_rs"].sum()
+        _kpis([("Total P&amp;L", f"₹{total:+,.0f}", "up" if total > 0 else "down"), ("Trades", len(o), ""),
+               ("Win rate", f"{len(w) / len(o) * 100:.0f}%", ""),
+               ("Avg win / loss", f"₹{w.mean() if len(w) else 0:,.0f} / ₹{l_.mean() if len(l_) else 0:,.0f}", ""),
+               ("Max drawdown", f"₹{(cum - cum.cummax()).min():,.0f}", "down"),
+               ("Avg premium return", f"{o['ret_pct'].mean():+.1f}%", "")], cols=3)
+        fig = go.Figure(go.Scatter(x=o["exit_date"], y=cum, mode="lines+markers", line=dict(color=UP, width=2)))
+        fig.update_layout(title="Cumulative option P&L (₹)", **CHART_LAYOUT)
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+        st.dataframe(o, hide_index=True, width="stretch")
+    st.caption("Free data has no historical option prices, so each trade is priced with Black-Scholes at an ATM strike, with the "
+               "20-bar realised volatility as IV and ₹20 per order in charges. Real fills, IV changes and spreads will differ.")
+    with st.expander("Same signals traded on the underlying"):
+        _bt_view(r)
+
+
+def learn_tab():
+    basics, strat = st.tabs(["Basics", "Strategies & backtest"])
+    with basics:
+        st.html('<div class="sec">Trading basics<span class="muted">read in order · then practise on the Paper Trading tab</span></div>')
+        for i, (title, body) in enumerate(learn.LESSONS):
+            with st.expander(title, expanded=i == 0):
+                st.markdown(body)
+                if title.startswith("5 "):
+                    _sizer()
+    with strat:
+        st.html('<div class="sec">Strategies<span class="muted">how each works, then test it on any stock or index, or as options · '
+                'past results are not a forecast</span></div>')
+        with st.container(key="panel-lbt"):
+            c1, c2, c3, c4, c5 = st.columns([1.6, 1.2, 0.8, 0.8, 0.8])
+            name = c1.selectbox("Strategy", list(learn.STRATEGIES), key="lb_strat")
+            sym = c2.text_input("Symbol", st.session_state.get("symbol", "RELIANCE"), key="lb_sym",
+                                help="Stock, NIFTY or BANKNIFTY").strip().upper()
+            interval = c3.selectbox("Candles", list(learn.INTERVALS), key="lb_iv",
+                                    help="Yahoo keeps 60 days of 5m/15m candles and 2 years of 1h")
+            period = c4.selectbox("History", ["1y", "2y", "3y", "5y", "10y"], index=2, key="lb_period", disabled=interval != "1d")
+            exch = c5.selectbox("Exchange", ["NSE", "BSE"], key="lb_exch")
+            st.markdown(learn.STRATEGIES[name][1])
+            c1, c2, c3, c4, c5 = st.columns([1, 0.9, 0.9, 0.9, 1.3], vertical_alignment="bottom")
+            mode = c1.segmented_control("Trade as", ["Stock", "Options"], default="Stock", key="lb_mode") or "Stock"
+            stop = c2.number_input("Stop (×ATR, 0 = off)", 0.0, 20.0, 2.0, 0.5, key="lb_stop")
+            target = c3.number_input("Target (×ATR, 0 = off)", 0.0, 50.0, 0.0, 0.5, key="lb_target")
+            cost = c4.number_input("Cost % per side", 0.0, 2.0, 0.1, 0.05, key="lb_cost")
+            shorts = c5.toggle("Trade sell signals too", key="lb_shorts", help="Stock: go short. Options: buy a PE.")
+            if mode == "Options":
+                o1, o2, _ = st.columns([1, 1, 2])
+                exp_days = o1.number_input("Days to expiry at entry", 1, 90, 30, key="lb_exp")
+                lots = o2.number_input("Lots", 1, 100, 1, key="lb_lots")
+            go_ = st.button("Run backtest", type="primary", key="lb_go")
+        if go_:
+            if " " in sym and (found := data.resolve(sym)):
+                sym = found[0]
+            try:
+                with st.spinner(f"Backtesting {name} on {sym}…"):
+                    r = learn.run(sym, name, exch, period, interval, shorts=shorts, stop_atr=stop, target_atr=target, cost_pct=cost)
+                r["title"] = f"{sym} · {name} · {interval}"
+                if mode == "Options":
+                    r["lot"] = (market.lot_size(sym) or 1) * lots
+                    r["options"] = learn.option_trades(r["trades"], r["d"], r["bars_year"], exp_days, r["lot"])
+                st.session_state.lbt = r
+            except Exception as ex:
+                st.session_state.lbt = None
+                st.warning(f"Backtest failed for {sym}: {ex}")
+        r = st.session_state.get("lbt")
+        if not r:
+            st.html('<div class="empty">Pick a strategy and a symbol, then click <b>Run backtest</b>.</div>')
+        elif "options" in r:
+            _options_view(r)
+        else:
+            _bt_view(r)

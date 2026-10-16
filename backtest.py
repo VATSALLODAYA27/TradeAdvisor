@@ -39,12 +39,14 @@ def simulate(d, labels, atr, long_label="BUY", short_label="SELL", shorts=False,
     idx, pos, trades, eq, equity = d.index, None, [], 1.0, []
     labels = labels.reindex(idx)
 
+    when = lambda ts: ts.date() if not (ts.hour or ts.minute) else ts.tz_localize(None)  # intraday bars keep their time
+
     def close(i, px, why):
         nonlocal pos, eq
         ret = (px / pos["entry"] - 1) * pos["side"] - 2 * cost_pct / 100
         eq = pos["eq0"] * (1 + ret)
-        trades.append({"side": "LONG" if pos["side"] > 0 else "SHORT", "entry_date": idx[pos["i"]].date(), "entry": round(pos["entry"], 2),
-                       "exit_date": idx[i].date(), "exit": round(px, 2), "bars": i - pos["i"], "ret_pct": round(ret * 100, 2), "exit_why": why})
+        trades.append({"side": "LONG" if pos["side"] > 0 else "SHORT", "entry_date": when(idx[pos["i"]]), "entry": round(pos["entry"], 2),
+                       "exit_date": when(idx[i]), "exit": round(px, 2), "bars": i - pos["i"], "ret_pct": round(ret * 100, 2), "exit_why": why})
         pos = None
 
     for i in range(len(d)):

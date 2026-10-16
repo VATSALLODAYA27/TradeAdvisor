@@ -5,6 +5,7 @@ __pycache__/
 # Personal data: your trades, snapshots, settings and generated reports
 history.db
 trades.csv
+paper.json
 indicators.json
 briefs/
 *.pdf
