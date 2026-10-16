@@ -1059,6 +1059,15 @@ def mascot_widget():
     st.rerun()
 
 
+def market_group():
+    """Market scanners, News and the daily Brief under one top tab; only the open sub-tab is built."""
+    mkt, nws, brf = st.tabs(["Market", "News", "Brief"], key="mkt_view", on_change="rerun")
+    for t, render in ((mkt, market_tab), (nws, lambda: news_tab(advisor.RULES)), (brf, brief_tab)):
+        if t.open:
+            with t:
+                render()
+
+
 def brief_tab():
     st.html('<div class="sec">Morning brief<span class="muted">market mood, sectors, events, top setups at your reward:risk and '
             'your open trades · best run before 09:15</span></div>')
@@ -1339,59 +1348,64 @@ def _options_view(r):
 
 
 def learn_tab():
-    basics, strat = st.tabs(["Basics", "Strategies & backtest"])
-    with basics:
-        st.html('<div class="sec">Trading basics<span class="muted">read in order · then practise on the Paper Trading tab</span></div>')
-        for i, (title, body) in enumerate(learn.LESSONS):
-            with st.expander(title, expanded=i == 0):
-                st.markdown(body)
-                if title.startswith("5 "):
-                    _sizer()
-    with strat:
-        st.html('<div class="sec">Strategies<span class="muted">how each works, then test it on any stock or index, or as options · '
-                'past results are not a forecast</span></div>')
-        with st.container(key="panel-lbt"):
-            c1, c2, c3, c4, c5 = st.columns([1.6, 1.2, 0.8, 0.8, 0.8])
-            name = c1.selectbox("Strategy", list(learn.STRATEGIES), key="lb_strat")
-            sym = c2.text_input("Symbol", st.session_state.get("symbol", "RELIANCE"), key="lb_sym",
-                                help="Stock, NIFTY or BANKNIFTY").strip().upper()
-            interval = c3.selectbox("Candles", list(learn.INTERVALS), key="lb_iv",
-                                    help="Yahoo keeps 60 days of 5m/15m candles and 2 years of 1h")
-            period = c4.selectbox("History", ["1y", "2y", "3y", "5y", "10y"], index=2, key="lb_period", disabled=interval != "1d")
-            exch = c5.selectbox("Exchange", ["NSE", "BSE"], key="lb_exch")
-            st.markdown(learn.STRATEGIES[name][1])
-            c1, c2, c3, c4, c5 = st.columns([1, 0.9, 0.9, 0.9, 1.3], vertical_alignment="bottom")
-            mode = c1.segmented_control("Trade as", ["Stock", "Options"], default="Stock", key="lb_mode") or "Stock"
-            stop = c2.number_input("Stop (×ATR, 0 = off)", 0.0, 20.0, 2.0, 0.5, key="lb_stop")
-            target = c3.number_input("Target (×ATR, 0 = off)", 0.0, 50.0, 0.0, 0.5, key="lb_target")
-            cost = c4.number_input("Cost % per side", 0.0, 2.0, 0.1, 0.05, key="lb_cost")
-            shorts = c5.toggle("Trade sell signals too", key="lb_shorts", help="Stock: go short. Options: buy a PE.")
-            if mode == "Options":
-                o1, o2, _ = st.columns([1, 1, 2])
-                exp_days = o1.number_input("Days to expiry at entry", 1, 90, 30, key="lb_exp")
-                lots = o2.number_input("Lots", 1, 100, 1, key="lb_lots")
-            go_ = st.button("Run backtest", type="primary", key="lb_go")
-        if go_:
-            if " " in sym and (found := data.resolve(sym)):
-                sym = found[0]
-            try:
-                with st.spinner(f"Backtesting {name} on {sym}…"):
-                    r = learn.run(sym, name, exch, period, interval, shorts=shorts, stop_atr=stop, target_atr=target, cost_pct=cost)
-                r["title"] = f"{sym} · {name} · {interval}"
+    basics, strat, opt = st.tabs(["Basics", "Strategies & backtest", "Option strategies"], key="learn_view", on_change="rerun")
+    if opt.open:
+        with opt:
+            strategies_tab(st.session_state.get("result"))
+    if basics.open:
+        with basics:
+            st.html('<div class="sec">Trading basics<span class="muted">read in order · then practise on the Paper Trading tab</span></div>')
+            for i, (title, body) in enumerate(learn.LESSONS):
+                with st.expander(title, expanded=i == 0):
+                    st.markdown(body)
+                    if title.startswith("5 "):
+                        _sizer()
+    if strat.open:
+        with strat:
+            st.html('<div class="sec">Strategies<span class="muted">how each works, then test it on any stock or index, or as options · '
+                    'past results are not a forecast</span></div>')
+            with st.container(key="panel-lbt"):
+                c1, c2, c3, c4, c5 = st.columns([1.6, 1.2, 0.8, 0.8, 0.8])
+                name = c1.selectbox("Strategy", list(learn.STRATEGIES), key="lb_strat")
+                sym = c2.text_input("Symbol", st.session_state.get("symbol", "RELIANCE"), key="lb_sym",
+                                    help="Stock, NIFTY or BANKNIFTY").strip().upper()
+                interval = c3.selectbox("Candles", list(learn.INTERVALS), key="lb_iv",
+                                        help="Yahoo keeps 60 days of 5m/15m candles and 2 years of 1h")
+                period = c4.selectbox("History", ["1y", "2y", "3y", "5y", "10y"], index=2, key="lb_period", disabled=interval != "1d")
+                exch = c5.selectbox("Exchange", ["NSE", "BSE"], key="lb_exch")
+                st.markdown(learn.STRATEGIES[name][1])
+                c1, c2, c3, c4, c5 = st.columns([1, 0.9, 0.9, 0.9, 1.3], vertical_alignment="bottom")
+                mode = c1.segmented_control("Trade as", ["Stock", "Options"], default="Stock", key="lb_mode") or "Stock"
+                stop = c2.number_input("Stop (×ATR, 0 = off)", 0.0, 20.0, 2.0, 0.5, key="lb_stop")
+                target = c3.number_input("Target (×ATR, 0 = off)", 0.0, 50.0, 0.0, 0.5, key="lb_target")
+                cost = c4.number_input("Cost % per side", 0.0, 2.0, 0.1, 0.05, key="lb_cost")
+                shorts = c5.toggle("Trade sell signals too", key="lb_shorts", help="Stock: go short. Options: buy a PE.")
                 if mode == "Options":
-                    r["lot"] = (market.lot_size(sym) or 1) * lots
-                    r["options"] = learn.option_trades(r["trades"], r["d"], r["bars_year"], exp_days, r["lot"])
-                st.session_state.lbt = r
-            except Exception as ex:
-                st.session_state.lbt = None
-                st.warning(f"Backtest failed for {sym}: {ex}")
-        r = st.session_state.get("lbt")
-        if not r:
-            st.html('<div class="empty">Pick a strategy and a symbol, then click <b>Run backtest</b>.</div>')
-        elif "options" in r:
-            _options_view(r)
-        else:
-            _bt_view(r)
+                    o1, o2, _ = st.columns([1, 1, 2])
+                    exp_days = o1.number_input("Days to expiry at entry", 1, 90, 30, key="lb_exp")
+                    lots = o2.number_input("Lots", 1, 100, 1, key="lb_lots")
+                go_ = st.button("Run backtest", type="primary", key="lb_go")
+            if go_:
+                if " " in sym and (found := data.resolve(sym)):
+                    sym = found[0]
+                try:
+                    with st.spinner(f"Backtesting {name} on {sym}…"):
+                        r = learn.run(sym, name, exch, period, interval, shorts=shorts, stop_atr=stop, target_atr=target, cost_pct=cost)
+                    r["title"] = f"{sym} · {name} · {interval}"
+                    if mode == "Options":
+                        r["lot"] = (market.lot_size(sym) or 1) * lots
+                        r["options"] = learn.option_trades(r["trades"], r["d"], r["bars_year"], exp_days, r["lot"])
+                    st.session_state.lbt = r
+                except Exception as ex:
+                    st.session_state.lbt = None
+                    st.warning(f"Backtest failed for {sym}: {ex}")
+            r = st.session_state.get("lbt")
+            if not r:
+                st.html('<div class="empty">Pick a strategy and a symbol, then click <b>Run backtest</b>.</div>')
+            elif "options" in r:
+                _options_view(r)
+            else:
+                _bt_view(r)
 
 
 @st.cache_data(ttl=120, show_spinner=False)

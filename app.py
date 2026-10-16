@@ -47,13 +47,19 @@ PERSIST = ("symbol", "exchange", "vatsal_mode", "advisors", "use_llm", "min_rr",
            "opp_opts", "strat_preset", "strat_w", "strat_lots", "mkt_pick", "mkt_group", "sec_rel", "ev_fo", "brief_uni",
            "brief_rr", "brief_cap", "sc_strike", "sc_kind", "bt_sym", "bt_adv", "bt_period", "bt_exch", "bt_long", "bt_short",
            "bt_stop", "bt_target", "bt_cost", "bt_shorts", "ipo_kind", "ipo_view", "ipo_days",
-           "ob_uni", "ob_sym", "com_sym", "com_view", "pp_view", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view",
+           "ob_uni", "ob_sym", "com_sym", "com_view", "pp_view", "mkt_view", "jr_view", "learn_view", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view",
            "lb_strat", "lb_sym", "lb_iv", "lb_period", "lb_exch", "lb_mode", "lb_stop", "lb_target", "lb_cost", "lb_shorts", "lb_exp", "lb_lots",
            "ps_cap", "ps_risk", "ps_entry", "ps_stop")
 for k in PERSIST:
     if k in st.session_state:
         st.session_state[k] = st.session_state[k]
+# tabs that live inside a group: name -> (top tab, sub-tab widget key)
+GROUPED = {"Market": ("Market & News", "mkt_view"), "News": ("Market & News", "mkt_view"), "Brief": ("Market & News", "mkt_view"),
+           "Journal": ("Journal & Rules", "jr_view"), "Rules": ("Journal & Rules", "jr_view"),
+           "Option strategies": ("Learn", "learn_view")}
 if goto := st.session_state.pop("goto", None):  # another tab asked to open this one (e.g. "Open on Analyze tab")
+    if goto in GROUPED:
+        goto, st.session_state[GROUPED[goto][1]] = GROUPED[goto][0], goto
     st.session_state.main_tab = goto
 if sym := st.session_state.pop("goto_symbol", None):  # the mascot ran an analysis: show its symbol in the box
     st.session_state.symbol = sym
@@ -69,9 +75,9 @@ def left_tab():
 topbar = st.empty()  # filled at the end, once this run's analysis (if any) is done
 st.html(views.TICKER)
 st.html(views.CREDIT)
-tab_an, tab_opp, tab_ob, tab_str, tab_bt, tab_paper, tab_learn, tab_mkt, tab_news, tab_com, tab_ipo, tab_mf, tab_br, tab_jr, tab_rules, tab_ind = st.tabs(
-    ["Analyze", "Opportunities", "Order Blocks", "Strategies", "Backtest", "Paper Trading", "Learn", "Market", "News", "Commodities", "IPO",
-     "Mutual Funds", "Brief", "Journal", "Rules", "Indicators"],
+tab_an, tab_opp, tab_ob, tab_bt, tab_paper, tab_learn, tab_mkt, tab_com, tab_ipo, tab_mf, tab_jr, tab_ind = st.tabs(
+    ["Analyze", "Opportunities", "Order Blocks", "Backtest", "Paper Trading", "Learn", "Market & News", "Commodities", "IPO",
+     "Mutual Funds", "Journal & Rules", "Indicators"],
     key="main_tab", on_change=left_tab)
 tabs.mascot_widget()  # floats over every tab
 
@@ -424,9 +430,15 @@ def rules_tab(r):
         msg.caption("Unsaved changes")
 
 
-if tab_rules.open:
-    with tab_rules:
-        rules_tab(st.session_state.get("result"))
+if tab_jr.open:
+    with tab_jr:
+        sub_jr, sub_rules = st.tabs(["Journal", "Rules"], key="jr_view", on_change=left_tab)  # leaving Rules keeps its draft
+        if sub_jr.open:
+            with sub_jr:
+                tabs.journal_tab()
+        if sub_rules.open:
+            with sub_rules:
+                rules_tab(st.session_state.get("result"))
 
 
 # ---------- indicators ----------
@@ -508,12 +520,11 @@ if tab_ind.open:
 
 for tab, render in [(tab_opp, lambda: tabs.opportunities_tab(st.session_state.get("vatsal_mode", False))),
                     (tab_ob, tabs.orderblock_tab),
-                    (tab_str, lambda: tabs.strategies_tab(st.session_state.get("result"))),
                     (tab_bt, lambda: tabs.backtest_tab(advisor.RULES, st.session_state.get("vatsal_mode", False))),
                     (tab_paper, tabs.paper_tab), (tab_learn, tabs.learn_tab),
-                    (tab_mkt, tabs.market_tab), (tab_news, lambda: tabs.news_tab(advisor.RULES)), (tab_com, lambda: tabs.commodity_tab(advisor.RULES)),
+                    (tab_mkt, tabs.market_group), (tab_com, lambda: tabs.commodity_tab(advisor.RULES)),
                     (tab_ipo, lambda: tabs.ipo_tab(advisor.RULES)),
-                    (tab_mf, lambda: tabs.mf_tab(advisor.RULES)), (tab_br, tabs.brief_tab), (tab_jr, tabs.journal_tab)]:
+                    (tab_mf, lambda: tabs.mf_tab(advisor.RULES))]:
     if tab.open:
         with tab:
             render()
