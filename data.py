@@ -19,6 +19,7 @@ import vatsal
 INDEX_YF = {"NIFTY": "^NSEI", "BANKNIFTY": "^NSEBANK", "FINNIFTY": "NIFTY_FIN_SERVICE.NS"}
 COMMODITY_YF = {"GOLD": "GC=F", "SILVER": "SI=F", "PLATINUM": "PL=F", "CRUDEOIL": "CL=F", "BRENT": "BZ=F",
                 "NATURALGAS": "NG=F", "COPPER": "HG=F", "ALUMINIUM": "ALI=F"}  # global futures (commodity.py)
+FOREX_YF = {k: f"{k}=X" for k in ("USDINR", "EURINR", "GBPINR", "JPYINR", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD")}
 
 NSE = requests.Session()
 NSE.headers.update({
@@ -28,14 +29,18 @@ NSE.headers.update({
 })
 
 
-def nse(path, tries=3):
+def nse(path, tries=4):
     # ponytail: unofficial NSE endpoints, no auth; they break when NSE changes its site. Swap for a broker feed then.
     for attempt in range(tries):
         try:
             r = NSE.get(f"https://www.nseindia.com/api/{path}", timeout=10)
             if r.status_code in (401, 403) and attempt < tries - 1:
-                # NSE answers some endpoints only with its site cookies (always so from cloud servers): load a page, retry
-                NSE.get("https://www.nseindia.com/option-chain", headers={"Accept": "text/html"}, timeout=10)
+                # NSE answers some endpoints only with fresh site cookies (always so from cloud servers): drop the stale
+                # ones, load the home page and the option-chain page like a browser would, then retry
+                NSE.cookies.clear()
+                for page in ("", "option-chain"):
+                    NSE.get(f"https://www.nseindia.com/{page}", headers={"Accept": "text/html"}, timeout=10)
+                time.sleep(attempt + 1)
                 continue
             r.raise_for_status()
             return r.json()
@@ -201,7 +206,7 @@ def metric_names(s):
 
 
 def yf_symbol(symbol, exchange):
-    return INDEX_YF.get(symbol) or COMMODITY_YF.get(symbol) or f"{symbol}.{'BO' if exchange == 'BSE' else 'NS'}"
+    return INDEX_YF.get(symbol) or COMMODITY_YF.get(symbol) or FOREX_YF.get(symbol) or f"{symbol}.{'BO' if exchange == 'BSE' else 'NS'}"
 
 
 @functools.lru_cache(maxsize=256)

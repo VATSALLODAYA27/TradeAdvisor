@@ -145,7 +145,7 @@ def metrics(r):
 
 def summary(symbol):
     """(raw tables, metrics) for one symbol, or (None, {}) for indices and unknown symbols."""
-    if symbol in data.INDEX_YF or symbol in getattr(data, "COMMODITY_YF", {}):
+    if symbol in data.INDEX_YF or symbol in data.COMMODITY_YF or symbol in data.FOREX_YF:
         return None, {}
     r = fetch(symbol)
     return r, metrics(r)

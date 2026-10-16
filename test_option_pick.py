@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from option_pick import bs_delta, pick
+from option_pick import bs_delta, greeks, pick
+from setups import bs_price
 
 # delta sanity: ATM ~0.5, deep ITM call ~1, put = call - 1
 t = 7 / 365
@@ -8,6 +9,16 @@ assert 0.48 < bs_delta(100, 100, t, 20, "CE") < 0.53
 assert bs_delta(100, 70, t, 20, "CE") > 0.99
 assert abs(bs_delta(100, 105, t, 20, "PE") - (bs_delta(100, 105, t, 20, "CE") - 1)) < 1e-12
 assert bs_delta(100, 100, t, 0, "CE") is None  # no IV -> no delta
+
+# greeks match finite differences of the Black-Scholes price
+for kind in ("CE", "PE"):
+    g, h = greeks(100, 102, 30 / 365, 25, kind), 0.01
+    p = lambda s=100, tt=30 / 365, iv=25: bs_price(s, 102, tt, iv, kind)
+    assert abs(g["delta"] - (p(100 + h) - p(100 - h)) / (2 * h)) < 1e-4
+    assert abs(g["gamma"] - (p(100 + h) - 2 * p() + p(100 - h)) / h ** 2) < 1e-3
+    assert abs(g["vega"] - (p(iv=26) - p(iv=24)) / 2) < 1e-3
+    assert abs(g["theta"] - (p(tt=29 / 365) - p())) < 2e-3
+assert greeks(100, 100, 0, 20, "CE") is None
 
 
 def leg(ltp, oi=1000, spread=0.05, iv=20):

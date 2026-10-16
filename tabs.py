@@ -3,6 +3,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import yfinance as yf
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
@@ -20,6 +21,7 @@ import market
 import mascot
 import mf
 import news
+import option_pick
 import results
 import orderblock
 import paper
@@ -212,14 +214,20 @@ def _com_candles(symbol):
 
 
 def commodity_tab(rules):
-    st.html('<div class="sec">Commodities<span class="muted">global futures (COMEX / NYMEX / ICE) from Yahoo, with an '
-            'approximate rupee price · verdicts from the [commodity] section of your rules</span></div>')
+    view = st.segmented_control("Market", ["Commodities", "Forex"], default="Commodities", key="com_view", label_visibility="collapsed") or "Commodities"
+    if view == "Forex":
+        st.html('<div class="sec">Forex<span class="muted">spot currency rates from Yahoo · BASEQUOTE = price of 1 BASE in QUOTE · '
+                'verdicts from the [commodity] section of your rules</span></div>')
+    else:
+        st.html('<div class="sec">Commodities<span class="muted">global futures (COMEX / NYMEX / ICE) from Yahoo, with an '
+                'approximate rupee price · verdicts from the [commodity] section of your rules</span></div>')
     try:
-        with st.spinner("Loading commodity prices…"):
+        with st.spinner("Loading prices…"):
             rows, failed = _commodities()
     except Exception as ex:
         st.warning(f"Yahoo didn't respond ({type(ex).__name__}). Try again in a moment.")
         return
+    rows = [r for r in rows if r["kind"] == {"Commodities": "commodity", "Forex": "forex"}[view]]
     if not rows:
         st.warning("No commodity data came back. Try again in a moment.")
         return
@@ -230,25 +238,26 @@ def commodity_tab(rules):
         r["verdict"] = advisor.verdict(section, r["metrics"]) if section else None
     st.html(commodity_cards(rows))
     fx = rows[0]["usdinr"]
-    st.caption((f"USD/INR {fx:.2f}. " if fx else "") + "Rupee price = USD price × USD/INR in MCX's unit, before import duty, "
-               "GST and the local premium, so MCX quotes higher (gold and silver most). Yahoo futures quotes lag about 10 minutes.")
+    if view == "Commodities":
+        st.caption((f"USD/INR {fx:.2f}. " if fx else "") + "Rupee price = USD price × USD/INR in MCX's unit, before import duty, "
+                   "GST and the local premium, so MCX quotes higher (gold and silver most). Yahoo futures quotes lag about 10 minutes.")
     trend = {1: "Up", -1: "Down", 0: "Flat"}
-    df = pd.DataFrame([{"commodity": r["name"], "price": r["metrics"]["close"], "unit": r["unit"], "approx_inr": r["inr"],
-                        "inr_unit": r["inr_unit"], "1D %": r["metrics"]["change_pct"], "1W %": r["metrics"]["ret_1w"],
+    df = pd.DataFrame([{"name": r["name"], "price": r["metrics"]["close"], "unit": r["unit"],
+                        **({"approx_inr": r["inr"], "inr_unit": r["inr_unit"]} if view == "Commodities" else {}), "1D %": r["metrics"]["change_pct"], "1W %": r["metrics"]["ret_1w"],
                         "1M %": r["metrics"]["ret_1m"], "3M %": r["metrics"]["ret_3m"], "RSI": r["metrics"]["rsi"],
                         "trend": trend[r["metrics"]["mtf_1d"]], "from 52w high %": r["metrics"]["pct_from_52w_high"],
                         "signal score": r["metrics"]["sig_score"], "verdict": r["verdict"]["verdict"] if r["verdict"] else "—"}
                        for r in rows])
     st.dataframe(df, hide_index=True, width="stretch", column_config={
         **{c: st.column_config.NumberColumn(c, format="%+.2f") for c in ["1D %", "1W %", "1M %", "3M %", "from 52w high %"]},
-        "price": st.column_config.NumberColumn("Price (USD)", format="%.2f"), "RSI": st.column_config.NumberColumn("RSI", format="%.1f"),
+        "price": st.column_config.NumberColumn("Price (USD)" if view == "Commodities" else "Rate", format="%.4f" if view == "Forex" else "%.2f"), "RSI": st.column_config.NumberColumn("RSI", format="%.1f"),
         "approx_inr": st.column_config.NumberColumn("≈ ₹", format="%,.2f")})
 
     st.html('<div class="sec">Study one<span class="muted">chart, the rule checks behind its verdict and its signals</span></div>')
     by = {r["symbol"]: r for r in rows}
     if st.session_state.get("com_sym") not in by:
         st.session_state.pop("com_sym", None)
-    sym = st.selectbox("Commodity", list(by), format_func=lambda k: by[k]["name"], key="com_sym")
+    sym = st.selectbox("Pair" if view == "Forex" else "Commodity", list(by), format_func=lambda k: by[k]["name"], key="com_sym")
     r = by[sym]
     candles = _com_candles(sym)
     if candles:
@@ -1177,7 +1186,7 @@ def paper_tab():
                 st.toast(f"{inst}: {why} hit, P&L ₹{p:,.0f}")
     px = st.session_state.paper_px
     open_pl = sum(paper.pnl(p, px[p["id"]]) for p in acct["positions"] if p["id"] in px)
-    blocked = sum(p["qty"] * p["entry"] for p in acct["positions"])
+    blocked = sum(paper.blocked(p) for p in acct["positions"])
     realised = sum(c["pnl"] for c in acct["closed"])
     equity = acct["cash"] + blocked + open_pl
     sign = lambda v: "up" if v > 0 else "down" if v < 0 else ""
@@ -1200,14 +1209,16 @@ def paper_tab():
             st.rerun()
 
     with st.form("paper_order", border=False), st.container(key="panel-paper"):
-        st.markdown("**Place an order** · market order at the live price. Stock: `RELIANCE` · option: `NIFTY 25000 CE` (nearest expiry)")
+        st.markdown("**Place an order** · market order at the live price. Stock: `RELIANCE` · option: `NIFTY 25000 CE` (nearest expiry) · "
+                    f"commodity: `{'`, `'.join(data.COMMODITY_YF)}` · forex: `{'`, `'.join(data.FOREX_YF)}`")
         c = st.columns([1.8, 0.8, 0.8, 0.9, 1, 1, 1], vertical_alignment="bottom")
-        typed = c[0].text_input("Symbol", placeholder="TCS or BANKNIFTY 56000 PE")
+        typed = c[0].text_input("Symbol", placeholder="TCS, BANKNIFTY 56000 PE, GOLD or EURUSD")
         exch = c[1].selectbox("Exchange", ["NSE", "BSE"])
         side = c[2].selectbox("Side", ["BUY", "SELL"])
-        qty = c[3].number_input("Qty / lots", 1, 10**7, 1, help="Shares for stocks, lots for options")
-        stop = c[4].number_input("Stop-loss", 0.0, 1e9, 0.0, 0.05, format="%.2f", help="0 = none")
-        target = c[5].number_input("Target", 0.0, 1e9, 0.0, 0.05, format="%.2f", help="0 = none")
+        qty = c[3].number_input("Qty / lots", 1, 10**9, 1, help="Shares for stocks, lots for options, ounces/barrels/... for commodities "
+                                "(see the unit on the Commodities tab), units of the first currency for forex (e.g. 10000 EUR for EURUSD)")
+        stop = c[4].number_input("Stop-loss", 0.0, 1e9, 0.0, 0.0001, format="%.4f", help="In the symbol's own quote (USD for commodities). 0 = none")
+        target = c[5].number_input("Target", 0.0, 1e9, 0.0, 0.0001, format="%.4f", help="In the symbol's own quote. 0 = none")
         go_ = c[6].form_submit_button("Place order", type="primary", width="stretch")
     if go_ and typed.strip():
         sym, strike, kind = setups.parse_query(typed)
@@ -1220,13 +1231,19 @@ def paper_tab():
                     price, expiry, strike = paper.option_quote(sym, strike, kind)
                     pos = paper.open_position(acct, sym, side, qty * (market.lot_size(sym) or 1), price, "NSE", kind, strike, expiry, stop, target)
                 else:
-                    pos = paper.open_position(acct, sym, side, qty, paper.stock_price(sym, exch), exch, stop=stop, target=target)
+                    pos = paper.open_position(acct, sym, side, qty, paper.stock_price(sym, exch), exch, stop=stop, target=target,
+                                              fx=paper.to_inr(paper.currency(sym)))
             paper.save(acct)
             px[pos["id"]] = pos["entry"]
-            st.toast(f"Filled: {side} {pos['qty']} {pos['instrument']} @ ₹{pos['entry']:,.2f}")
+            st.session_state.pp_view = sym
+            st.toast(f"Filled: {side} {pos['qty']} {pos['instrument']} @ {pos['entry']:,.4f}")
             st.rerun()
         except Exception as ex:
-            st.error(f"Order not placed: {ex}")
+            nse_block = "nseindia.com" in str(ex) and any(c in str(ex) for c in ("401", "403"))
+            st.error("Order not placed: NSE refused the option-chain request (it blocks automated requests now and then). "
+                     "Wait a few seconds and place the order again." if nse_block else f"Order not placed: {ex}")
+
+    _watch(acct)
 
     if acct["positions"]:
         st.html('<div class="sec">Open positions</div>')
@@ -1358,3 +1375,130 @@ def learn_tab():
             _options_view(r)
         else:
             _bt_view(r)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _paper_candles(symbol, exchange):
+    def one(iv):
+        try:
+            return iv, data.candles(symbol, exchange, iv)
+        except Exception:
+            return iv, None
+    with ThreadPoolExecutor(4) as pool:
+        got = dict(pool.map(one, data.CHART))
+    return {iv: c for iv, c in got.items() if c and c["time"]}
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _paper_chain(symbol):
+    return data.option_metrics(symbol)
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _momentum(symbol, exchange):
+    """Live 5-minute read: price vs VWAP, RSI(5m), last-15-minute change and volume surge, summed into a bias."""
+    m = data.intraday_metrics(symbol, exchange, data.load_settings())
+    c = yf.Ticker(data.yf_symbol(symbol, exchange)).history(period="1d", interval="5m")["Close"]
+    m["chg_15m"] = (c.iloc[-1] / c.iloc[-4] - 1) * 100 if len(c) >= 4 else None
+    vote = lambda v, lo, hi: 0 if v is None or v != v else int(v > hi) - int(v < lo)  # +1 / -1 / 0, NaN counts as 0
+    score = vote(m["price"] - m["vwap"] if m.get("vwap") else None, 0, 0) + vote(m.get("rsi_5m"), 45, 55) + vote(m["chg_15m"], -0.1, 0.1)
+    m["bias"] = "Bullish" if score >= 2 else "Bearish" if score <= -2 else "Neutral"
+    return m
+
+
+@st.fragment(run_every=30)
+def _momentum_strip(symbol, exchange):
+    try:
+        m = _momentum(symbol, exchange)
+    except Exception as ex:
+        st.caption(f"Live momentum unavailable for {symbol} ({type(ex).__name__}).")
+        return
+    tone_ = lambda v: "up" if v and v > 0 else "down" if v and v < 0 else ""
+    vw = m.get("vwap")
+    surge = m.get("vol_ratio_5m")
+    _kpis([("Live momentum", m["bias"], {"Bullish": "up", "Bearish": "down"}.get(m["bias"], "")),
+           ("Price", fmt(m["price"], 4 if symbol in data.FOREX_YF else 2), ""),
+           ("Day change", f"{m['day_change_pct']:+.2f}%", tone_(m["day_change_pct"])),
+           ("Last 15 min", "—" if m["chg_15m"] is None else f"{m['chg_15m']:+.2f}%", tone_(m["chg_15m"])),
+           ("vs VWAP", "—" if not vw else f"{'above' if m['price'] > vw else 'below'} {fmt(vw)}", tone_(m["price"] - vw if vw else None)),
+           ("RSI (5m)", fmt(m["rsi_5m"], 1), "up" if m["rsi_5m"] > 55 else "down" if m["rsi_5m"] < 45 else ""),
+           ("Volume vs avg (5m)", "—" if not surge else f"{surge:.1f}×", "up" if surge and surge >= 1.5 else ""),
+           ("Day range", f"{fmt(m['day_low'])} – {fmt(m['day_high'])}", "")])
+    st.caption(f"Updates every 30 s · last 5-minute bar {m['price_time'][11:16]} (Yahoo bars lag ~5 min) · "
+               "bias = price vs VWAP + RSI(5m) above 55 / below 45 + last 15 min direction")
+
+
+def _chain_view(symbol, held):
+    """OI by strike and the chain around ATM with every Greek. held: strikes of your open paper positions (highlighted)."""
+    try:
+        o = _paper_chain(symbol)
+    except Exception as ex:
+        st.info(f"No option chain for {symbol}: it has no F&O contracts, or NSE didn't answer ({type(ex).__name__}).")
+        return
+    spot, t = o["spot"], years_to(o["expiry"])
+    chain = sorted(o["_chain"], key=lambda r: r["strike"])
+    atm = min(range(len(chain)), key=lambda i: abs(chain[i]["strike"] - spot))
+    win = chain[max(0, atm - 10): atm + 11]
+    _kpis([("Spot", fmt(spot), ""), ("Expiry", f"{o['expiry']} ({o['days_to_expiry']}d)", ""), ("PCR (OI)", fmt(o["pcr_oi"]), ""),
+           ("Max pain", fmt(o["max_pain"], 0), ""), ("ATM IV", f"{fmt(o['atm_iv'])}%", ""),
+           ("Call wall / put wall", f"{fmt(o['call_wall'], 0)} / {fmt(o['put_wall'], 0)}", "")], cols=3)
+    k = [r["strike"] for r in win]
+    oi = lambda kind, f: [(r.get(kind) or {}).get(f, 0) for r in win]
+    fig = go.Figure([go.Bar(x=k, y=oi("CE", "oi"), name="Call OI", marker_color=DOWN),
+                     go.Bar(x=k, y=oi("PE", "oi"), name="Put OI", marker_color=UP),
+                     go.Scatter(x=k, y=oi("CE", "chg_oi"), name="Call ΔOI", mode="lines+markers", line=dict(color=DOWN, dash="dot")),
+                     go.Scatter(x=k, y=oi("PE", "chg_oi"), name="Put ΔOI", mode="lines+markers", line=dict(color=UP, dash="dot"))])
+    fig.add_vline(x=spot, line_dash="dash", line_color=MUTED, annotation_text=f"spot {spot:,.0f}")
+    fig.update_layout(**{**CHART_LAYOUT, "height": 340}, title=f"{symbol} open interest by strike ({o['expiry']})", barmode="group",
+                      legend=dict(orientation="h", y=-0.2))
+    st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    rows = []
+    for r in win:
+        row = {}
+        for kind in ("CE", "PE"):
+            q = r.get(kind) or {}
+            g = option_pick.greeks(spot, r["strike"], t, q.get("iv"), kind) or {}
+            row |= {f"{kind} OI": q.get("oi"), f"{kind} ΔOI": q.get("chg_oi"), f"{kind} vol": q.get("volume"), f"{kind} IV": q.get("iv"),
+                    f"{kind} LTP": q.get("ltp"), f"{kind} Δ": g.get("delta"), f"{kind} Γ": g.get("gamma"),
+                    f"{kind} Θ/day": g.get("theta"), f"{kind} vega": g.get("vega")}
+            if kind == "CE":
+                row["strike"] = r["strike"]
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    cols = [c for c in df.columns if c.startswith("CE")][::-1] + ["strike"] + [c for c in df.columns if c.startswith("PE")]
+    hl = lambda row: ["background-color: rgba(201,133,0,.25)" if row["strike"] in held else
+                      "background-color: rgba(125,138,165,.18)" if row["strike"] == chain[atm]["strike"] else ""] * len(row)
+    st.dataframe(df[cols].style.apply(hl, axis=1).format(precision=2, na_rep="—")
+                 .format({c: "{:.4f}" for c in cols if c.endswith("Γ")}, na_rep="—")
+                 .format({c: "{:,.0f}" for c in cols if "OI" in c or c.endswith("vol")}, na_rep="—"),
+                 hide_index=True, width="stretch", height=420)
+    st.caption("Calls on the left, puts on the right · grey row = ATM · amber = a strike you hold · Greeks are Black-Scholes from NSE's IV, "
+               "per 1 unit: Δ = premium change per ₹1 move, Γ = change in Δ per ₹1, Θ/day = premium lost per day, vega = change per 1 IV point. "
+               "Position Greeks = these × your quantity (× −1 if you sold).")
+
+
+def _watch(acct):
+    st.html('<div class="sec">Watch<span class="muted">chart, live momentum and, for F&amp;O symbols, OI and Greeks</span></div>')
+    held = list(dict.fromkeys(p["symbol"] for p in acct["positions"]))
+    c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
+    st.session_state.setdefault("pp_view", held[0] if held else "NIFTY")
+    sym = c1.text_input("Symbol to watch", key="pp_view", help="Any stock, index, commodity (GOLD) or forex pair (EURUSD)").strip().upper()
+    if held:
+        c2.caption("Your positions: " + ", ".join(held))
+    sym = setups.parse_query(sym)[0]
+    if " " in sym and (found := data.resolve(sym)):
+        sym = found[0]
+    exch = next((p["exchange"] for p in acct["positions"] if p["symbol"] == sym and not p.get("kind")), "NSE")
+    _momentum_strip(sym, exch)
+    chart_t, chain_t = st.tabs(["Chart", "Option chain · OI · Greeks"])
+    with chart_t:
+        candles = _paper_candles(sym, exch)
+        if candles:
+            components.html(chart(candles, {}, start="5m"), height=600)
+        else:
+            st.warning(f"No chart data for {sym}.")
+    with chain_t:
+        if sym in data.COMMODITY_YF or sym in data.FOREX_YF:
+            st.info("Option chains here come from NSE, so they cover NSE F&O stocks and indices only.")
+        else:
+            _chain_view(sym, {p["strike"] for p in acct["positions"] if p.get("kind") and p["symbol"] == sym})

@@ -1,9 +1,10 @@
-"""Commodities: global futures from Yahoo (COMEX / NYMEX / ICE, quoted in USD), with an approximate rupee price.
+"""Commodities and forex: global futures from Yahoo (COMEX / NYMEX / ICE, quoted in USD), with an approximate rupee price.
 
 MCX has no free feed, so these are the international contracts MCX prices follow. The rupee figure is the USD
 price x USD/INR, converted to the unit MCX quotes in; it leaves out import duty, GST and the local premium, so
 MCX trades higher (gold and silver most of all). Verdicts come from the [commodity] section of rules.toml and
 use the same daily metrics as shares (close, ema_*, rsi, macd_*, supertrend_dir, sig_*).
+Forex pairs are spot rates from Yahoo (BASEQUOTE: price of 1 BASE in QUOTE) and use the same rules section.
 """
 import pandas as pd
 import yfinance as yf
@@ -22,6 +23,11 @@ ITEMS = {
     "NATURALGAS": ("Natural gas", "$/mmBtu", 1, "₹/mmBtu"),
     "COPPER": ("Copper", "$/lb", 2.20462, "₹/kg"),
     "ALUMINIUM": ("Aluminium", "$/tonne", 0.001, "₹/kg"),
+}
+FOREX = {  # symbol -> name. Tickers: data.FOREX_YF
+    "USDINR": "US dollar / rupee", "EURINR": "Euro / rupee", "GBPINR": "Pound / rupee", "JPYINR": "Yen / rupee",
+    "EURUSD": "Euro / US dollar", "GBPUSD": "Pound / US dollar", "USDJPY": "US dollar / yen", "AUDUSD": "Aussie / US dollar",
+    "USDCHF": "US dollar / Swiss franc", "USDCAD": "US dollar / Canadian dollar",
 }
 
 
@@ -43,22 +49,23 @@ def metrics(d, s):
 
 
 def scan():
-    """Returns ([{symbol, name, unit, inr_unit, inr, usdinr, metrics}], symbols that failed to load)."""
-    tickers = [data.COMMODITY_YF[k] for k in ITEMS] + ["USDINR=X"]
+    """Returns ([{symbol, kind, name, unit, inr_unit, inr, usdinr, metrics}], symbols that failed to load). kind: commodity | forex."""
+    tickers = [data.COMMODITY_YF[k] for k in ITEMS] + [data.FOREX_YF[k] for k in FOREX]
     raw = yf.download(tickers, period="2y", interval="1d", group_by="ticker", threads=True, progress=False, auto_adjust=False)
     fx = raw["USDINR=X"]["Close"].dropna()
     usdinr = float(fx.iloc[-1]) if len(fx) else None
     s = data.load_settings()
     rows, failed = [], []
-    for sym, (name, unit, mult, inr_unit) in ITEMS.items():
+    todo = [(k, "commodity", *v) for k, v in ITEMS.items()] + [(k, "forex", n, f"{k[3:]} per {k[:3]}", None, "") for k, n in FOREX.items()]
+    for sym, kind, name, unit, mult, inr_unit in todo:
         try:
-            d = raw[data.COMMODITY_YF[sym]].dropna(subset=["Close"])
+            d = raw[data.yf_symbol(sym, None)].dropna(subset=["Close"])
             if len(d) < 210:
                 raise ValueError("not enough history")
             m = metrics(d, s)
         except Exception:
             failed.append(sym)
             continue
-        rows.append({"symbol": sym, "name": name, "unit": unit, "inr_unit": inr_unit, "usdinr": usdinr,
-                     "inr": usdinr and round(m["close"] * usdinr * mult, 2), "metrics": m})
+        rows.append({"symbol": sym, "kind": kind, "name": name, "unit": unit, "inr_unit": inr_unit, "usdinr": usdinr,
+                     "inr": usdinr and mult and round(m["close"] * usdinr * mult, 2), "metrics": m})
     return rows, failed

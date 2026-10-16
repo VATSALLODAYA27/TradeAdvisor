@@ -47,7 +47,7 @@ PERSIST = ("symbol", "exchange", "vatsal_mode", "advisors", "use_llm", "min_rr",
            "opp_opts", "strat_preset", "strat_w", "strat_lots", "mkt_pick", "mkt_group", "sec_rel", "ev_fo", "brief_uni",
            "brief_rr", "brief_cap", "sc_strike", "sc_kind", "bt_sym", "bt_adv", "bt_period", "bt_exch", "bt_long", "bt_short",
            "bt_stop", "bt_target", "bt_cost", "bt_shorts", "ipo_kind", "ipo_view", "ipo_days",
-           "ob_uni", "ob_sym", "com_sym", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view",
+           "ob_uni", "ob_sym", "com_sym", "com_view", "pp_view", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view",
            "lb_strat", "lb_sym", "lb_iv", "lb_period", "lb_exch", "lb_mode", "lb_stop", "lb_target", "lb_cost", "lb_shorts", "lb_exp", "lb_lots",
            "ps_cap", "ps_risk", "ps_entry", "ps_stop")
 for k in PERSIST:

@@ -20,6 +20,20 @@ def bs_delta(spot, strike, t_years, iv_pct, kind):
     return n if kind == "CE" else n - 1
 
 
+def greeks(spot, strike, t_years, iv_pct, kind):
+    """Black-Scholes delta, gamma, theta (₹ per day) and vega (₹ per 1 IV point) per 1 unit. None when IV or time is missing."""
+    if not iv_pct or t_years <= 0 or spot <= 0 or strike <= 0:
+        return None
+    sig, rt = iv_pct / 100, math.sqrt(t_years)
+    d1 = (math.log(spot / strike) + (R + sig * sig / 2) * t_years) / (sig * rt)
+    d2 = d1 - sig * rt
+    N = lambda x: 0.5 * (1 + math.erf(x / math.sqrt(2)))
+    pdf = math.exp(-d1 * d1 / 2) / math.sqrt(2 * math.pi)
+    carry = R * strike * math.exp(-R * t_years) * (N(d2) if kind == "CE" else -N(-d2))
+    return {"delta": N(d1) if kind == "CE" else N(d1) - 1, "gamma": pdf / (spot * sig * rt),
+            "theta": (-spot * pdf * sig / (2 * rt) - carry) / 365, "vega": spot * pdf * rt / 100}
+
+
 def enrich(row, kind, spot, t):
     """Chain leg -> display dict with spread, delta and breakeven. None if the leg has no two-sided quote."""
     o = row.get(kind)
