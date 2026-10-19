@@ -1008,8 +1008,8 @@ def thinking(words, label, where=None):
 
 
 def mascot_widget():
-    """Taursa, floating bottom-right on every tab: the bull and bear from the brand video, looping. No chat; while any
-    model is thinking, the thinking animation plays right above it."""
+    """Taursa's badge, floating bottom-right on every tab. No chat; while any model is thinking, the thinking animation
+    (bull and bear clips from the brand video) plays right above it."""
     with st.container(key="mascot"):
         st.session_state["_taursa_busy"] = st.empty()
         st.html(views.TAURSA)
