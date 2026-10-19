@@ -1,4 +1,5 @@
 """Streamlit tabs: Opportunities (scanner), Market (NSE scanners), Journal (your trades dashboard), Paper Trading, Learn."""
+import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -27,6 +28,7 @@ import results
 import orderblock
 import paper
 import scanner
+import slm
 import setups
 import strategies
 from setups import years_to
@@ -1533,3 +1535,120 @@ def _watch(acct):
             st.info("Option chains here come from NSE, so they cover NSE F&O stocks and indices only.")
         else:
             _chain_view(sym, {p["strike"] for p in acct["positions"] if p.get("kind") and p["symbol"] == sym})
+
+
+# ---------- AI portfolio desk ----------
+
+CONV_TONE = {"High": "t-up", "Moderate": "t-warn", "Veto": "t-down"}
+
+
+def _desk_inputs():
+    cfg = slm.load_settings()
+    with st.expander("Your portfolio & macro inputs", expanded=not any((cfg.get("holdings") or {}).values())):
+        st.caption("Current value of each mutual-fund sleeve. The engine computes drift against the 35 / 25 / 25 / 15 targets. "
+                   "Saved in desk.json next to the app.")
+        with st.form("desk_cfg", border=False):
+            funds, hold = {}, {}
+            for s, tgt, _ in slm.SLEEVES:
+                c1, c2 = st.columns([3, 1.2])
+                funds[s] = c1.text_input(f"{s} fund · target {tgt}%", cfg["funds"].get(s, ""))
+                hold[s] = c2.number_input(f"{s} value ₹", 0.0, 1e12, float(cfg["holdings"].get(s) or 0), 1000.0, format="%.0f")
+            c1, c2, c3 = st.columns(3)
+            repo = c1.number_input("RBI repo rate % (0 = unknown)", 0.0, 20.0, float(cfg.get("repo_rate") or 0), 0.05,
+                                   help="No free feed for it; type the current rate from rbi.org.in")
+            last = c2.date_input("Last annual review", date.fromisoformat(cfg["last_review"]) if cfg.get("last_review") else None)
+            if c3.form_submit_button("Save inputs", type="primary", width="stretch"):
+                cfg |= {"funds": funds, "holdings": hold, "repo_rate": repo or None, "last_review": last.isoformat() if last else None}
+                slm.save_settings(cfg)
+                st.toast("Inputs saved")
+    return cfg
+
+
+def _decision_cards(rows):
+    out = []
+    for d in rows:
+        t = CONV_TONE[d["conviction"]]
+        out.append(
+            f'<article class="panel card {t}"><header><h3>{e(d["ticker"])} <span class="muted" style="font-size:12px">'
+            f'{e(d["strategy_sleeve"])}</span></h3><span class="badge {t}">{e(d["conviction"])}</span></header>'
+            f'<div class="levels" style="gap:14px"><span>Entry<b>{fmt(d["entry_price"])}</b></span>'
+            f'<span>Stop-loss<b class="down">{fmt(d["stop_loss_price"])}</b></span></div>'
+            f'<p style="margin:8px 0 4px"><b>Technical:</b> {e(d["technical_rationale"])}</p>'
+            f'<p style="margin:4px 0"><b>Catalyst:</b> {e(d["fundamental_catalyst"])}</p>'
+            f'<p style="margin:4px 0" class="muted"><b>Risks:</b> {e(d["downside_risks"])}</p></article>')
+    return f'<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">{"".join(out)}</div>'
+
+
+def desk_tab():
+    st.html('<div class="sec">AI Portfolio Desk<span class="muted">Python computes every number · a small open-weights model '
+            f'({slm.MODEL}) decides and explains · guardrails enforce the rules · not investment advice</span></div>')
+    cfg = _desk_inputs()
+    c1, c2, c3 = st.columns([1.3, 1.6, 3], vertical_alignment="center")
+    use_model = c2.toggle("Use the AI model", True, key="desk_model", help="Off: the same output from the rules alone, with template reasons")
+    review = c3.checkbox("Run the annual review now", key="desk_review",
+                         help="Rebalances every sleeve to target even when drift is inside ±5%. Also on when the last review is over a year old.")
+    if c1.button("Run the desk", type="primary", width="stretch"):
+        due = review or not cfg.get("last_review") or (date.today() - date.fromisoformat(cfg["last_review"])).days >= 365
+        due = due and any((cfg.get("holdings") or {}).values())
+        bar = st.progress(0.0, text="Starting…")
+        try:
+            st.session_state.desk = slm.run(cfg, due, use_model, lambda f, t: bar.progress(min(f, 1.0), text=t))
+        except Exception as ex:
+            st.session_state.desk = None
+            st.error(f"The desk couldn't finish: {type(ex).__name__}: {ex}")
+        bar.empty()
+    r = st.session_state.get("desk")
+    if not r:
+        st.html('<div class="empty">Enter your fund values above, then <b>Run the desk</b>. It scans all Nifty 500 stocks, so a run '
+                'takes one to two minutes.</div>')
+        return
+    f, o = r["facts"], r["output"]
+    mv, mac = o["macro_verdict"], f["macro"]
+    rt = {"Bullish": "t-up", "Bearish": "t-down"}.get(mv["regime"], "t-flat")
+    st.html(f'<section class="panel card {rt}"><header><h3>Macro verdict</h3><span class="badge {rt}">{e(mv["regime"])}</span></header>'
+            f'<p><b>Breadth:</b> {e(mv["breadth_summary"])}</p><p>{e(mv["rationale"])}</p></section>')
+    pct = lambda v: "—" if v is None else f"{v}%"
+    _kpis([("Nifty 500", fmt(mac.get("nifty500_close")), ""),
+           ("Supertrend weekly / daily", f'{mac.get("nifty500_supertrend_weekly")} / {mac.get("nifty500_supertrend_daily")}',
+            "up" if mac.get("nifty500_supertrend_weekly") == 1 else "down"),
+           ("Above 50 / 200-day SMA", f'{pct(f["breadth"].get("pct_above_sma50"))} / {pct(f["breadth"].get("pct_above_sma200"))}', ""),
+           ("RBI repo / real", f'{pct(mac.get("rbi_repo_rate_pct"))} / {pct(mac.get("india_real_repo_rate_pct"))}', ""),
+           ("India CPI YoY", f'{pct(mac.get("india_cpi_yoy_pct"))} ({mac.get("india_cpi_trend") or "—"}, {mac.get("india_cpi_date") or "—"})', ""),
+           ("Fed funds", pct(mac.get("fed_funds_rate_pct")), ""), ("US 10y real yield", pct(mac.get("us_10y_real_yield_pct")), ""),
+           ("US 10y − 2y", pct(mac.get("us_10y_minus_2y_spread_pct")), "")])
+    if f["hedge"]["active"]:
+        st.html('<div class="alert"><b>Downside hedge active.</b> ' + e(f["hedge"]["note"]) + ": " + " · ".join(
+            f"{k} ₹{fmt(v)}" for k, v in f["hedge"]["etf_prices"].items()) + "</div>")
+
+    st.html('<div class="sec">Mutual-fund rebalance<span class="muted">±5% drift or the annual review · amounts computed by the engine</span></div>')
+    alloc = {x["fund_name"]: x for x in f["mf_allocation"]["funds"]}
+    st.dataframe(pd.DataFrame([{"fund": m["fund_name"], "target %": alloc[m["fund_name"]]["target_pct"],
+                                "current %": alloc[m["fund_name"]]["current_pct"], "drift %": alloc[m["fund_name"]]["drift_pct"],
+                                "action": m["action"], "amount ₹": m["amount_inr"], "reason": m["reason"]}
+                               for m in o["mutual_fund_rebalance_orders"]]), hide_index=True, width="stretch")
+
+    st.html(f'<div class="sec">Stock decisions<span class="muted">Weekly Core ({len(f["weekly_core_signals"])}) and Daily Tactical '
+            f'({len(f["daily_tactical_signals"])}) signals from the Nifty 500 · entries are the last close</span></div>')
+    if o["stock_trade_decisions"]:
+        st.html(_decision_cards(o["stock_trade_decisions"]))
+    else:
+        st.info("No Nifty 500 stock passed either screen today.")
+    st.html('<div class="sec">Portfolio exits<span class="muted">your Paper Trading stock positions that hit an exit rule</span></div>')
+    if o["portfolio_exits"]:
+        st.dataframe(pd.DataFrame(o["portfolio_exits"]), hide_index=True, width="stretch")
+    else:
+        st.caption("No exits: none of your paper stock positions hit a rule.")
+
+    st.html(f'<div class="alert"><b>Disclaimer.</b> {e(o["compliance_disclaimer"])}</div>')
+    with st.expander(f"Guardrails · {len(r['fixes'])} correction(s) · model: "
+                     + ("answered" if r["model_answer"] else f"not used ({r['model_error']})")):
+        st.caption("Everything the guardrail layer changed in the model's answer before showing it. With no model answer, the "
+                   "output above is the rule-based fallback.")
+        for x in r["fixes"] or ["No corrections needed."]:
+            st.markdown(f"- {x}")
+    c1, c2 = st.columns(2)
+    with c1.expander("FACTS sent to the model"):
+        st.json(f, expanded=False)
+    with c2.expander("Model's raw answer"):
+        st.json(r["model_answer"] or {}, expanded=False)
+    st.download_button("Download decision JSON", json.dumps(o, indent=2, ensure_ascii=False), f"desk_{f['as_of'][:10]}.json", "application/json")

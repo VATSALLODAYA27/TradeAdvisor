@@ -31,7 +31,7 @@ CFG = {  # from the desktop mascot's config.json / main.js, renamed for this sit
     "ttsModels": ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts"],
 }
 BASE = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
-TABS = ["Analyze", "Opportunities", "Order Blocks", "Backtest", "Paper Trading", "Learn", "Option strategies", "Market", "News",
+TABS = ["Analyze", "Opportunities", "AI Portfolio Desk", "Order Blocks", "Backtest", "Paper Trading", "Learn", "Option strategies", "Market", "News",
         "Commodities", "IPO", "Mutual Funds", "Brief", "Journal", "Rules", "Indicators"]  # grouped ones resolve in app.GROUPED
 STOCK_ADVISORS = [n for n in advisor.RULES if n not in advisor.OWN_TAB and not n.startswith("vatsal")]
 

@@ -6,6 +6,7 @@ __pycache__/
 history.db
 trades.csv
 paper.json
+desk.json
 indicators.json
 briefs/
 *.pdf
