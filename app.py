@@ -135,7 +135,8 @@ if tab_an.open:
             else:
                 run = lambda s, ex: advisor.build(chosen).invoke({"symbol": s, "exchange": ex, "use_llm": use_llm, "verdicts": {}})
                 has_data = lambda o: "close" in o["metrics"] or "price" in o["metrics"]
-                with st.spinner(f"Fetching {sym} and running {len(chosen)} advisors…"):
+                with tabs.thinking([sym, exchange, *chosen, "RSI", "MACD", "Supertrend", "option chain", "news"],
+                                   f"Analysing {sym} with {len(chosen)} advisors…"):
                     out = run(sym, exchange)
                     if not has_data(out) and (found := data.resolve(typed)) and found != (sym, exchange):  # e.g. "hdfc"
                         sym, exchange = found

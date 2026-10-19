@@ -2,6 +2,7 @@
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import date, datetime
 
 import pandas as pd
@@ -25,6 +26,7 @@ import mf
 import news
 import option_pick
 import results
+import views
 import orderblock
 import paper
 import scanner
@@ -994,6 +996,27 @@ def results_view(symbol):
             st.html(f'<p class="note">Source: <a href="{e(r["url"])}" target="_blank">screener.in</a> · estimates: Yahoo</p>')
 
 
+STOP = set("a an and are as at be by can could did do does for from give how i if in is it its me my of on or please show "
+           "should tell that the this to was what when which who why will with would you your about any".split())
+
+
+@contextmanager
+def thinking(words, label, where=None):
+    """The bull-and-bear animation while a model works; yields show(label) to update its caption. where: an st.empty() to draw in."""
+    ph = where or st.empty()
+    show = lambda text: ph.html(views.thinking(words, text))
+    show(label)
+    try:
+        yield show
+    finally:
+        ph.empty()
+
+
+def keywords(text, n=6):
+    """The searchable words of a question, for the thinking animation."""
+    return [w for w in re.findall(r"[A-Za-z0-9&.]+", text or "") if w.lower() not in STOP and len(w) > 2][:n]
+
+
 def _mascot_context():
     """What the user is looking at, so 'this stock' or 'here' means something to the mascot."""
     s = st.session_state
@@ -1013,23 +1036,19 @@ def mascot_widget():
     with st.container(key="mascot"):
         if bubble := s.pop("mascot_bubble", None):
             plain = re.sub(r"[*_`#]+", "", bubble)  # the bubble is plain text: drop markdown marks like **APPLY**
-            short = plain if len(plain) <= 220 else plain[:217].rsplit(" ", 1)[0] + "… (more in the chat)"
-            st.html(f'<div class="mascot-bubble">{e(short)}</div>')
+            st.html(f'<div class="mascot-bubble">{e(plain)}</div>')
         if audio := s.pop("mascot_audio", None):
             st.audio(audio, format="audio/wav", autoplay=True)
         if dl := s.get("mascot_download"):
             st.download_button(f"Download report · {dl['name'].split('_')[0]}", dl["data"], dl["name"], "application/pdf",
                                icon=":material/download:", type="primary", key="mascot_dl")
+        busy = st.empty()  # the thinking animation appears here, right above Taursa
         st.html(MASCOT_STYLE)
         with st.popover(f"Ask {name}"):
             st.html(f'<div class="mascot-head">{MASCOT_IMG}<div><b>{name}</b><span>your TradeAdvisor guide · '
                     'answers aloud · can open pages and run analyses</span></div></div>')
-            if not s.mascot_chat:
-                st.chat_message("assistant", avatar="🐂").write(
-                    f"Hi, I'm {name}! Ask me about any stock, IPO, fund or how this site works, or ask for a PDF "
-                    "report. Try \"analyze NIFTY 50\" or \"did Reliance beat estimates?\".")
-            for h in s.mascot_chat[-10:]:
-                st.chat_message("user" if h["role"] == "user" else "assistant", avatar=None if h["role"] == "user" else "🐂").write(h["text"])
+            st.caption("Ask about any stock, IPO, fund or how this site works, or ask for a PDF report. The answer appears "
+                       "next to me and is read aloud. Try \"analyze NIFTY 50\" or \"did Reliance beat estimates?\".")
             with st.form("mascot_form", clear_on_submit=True, border=False):
                 c1, c2 = st.columns([5, 1], vertical_alignment="bottom")
                 typed = c1.text_input("Ask", placeholder=f"Ask {name}…", label_visibility="collapsed")
@@ -1037,13 +1056,13 @@ def mascot_widget():
             spoken = st.audio_input("Or ask by voice", key=f"mascot_mic_{s.mascot_mic_n}")
             c1, c2 = st.columns(2)
             c1.toggle("Speak answers", value=True, key="mascot_voice")
-            if c2.button("Clear chat", disabled=not s.mascot_chat):
+            if c2.button("New conversation", disabled=not s.mascot_chat, help=f"{name} remembers your last questions; this forgets them"):
                 s.mascot_chat = []
                 st.rerun()
     question = typed.strip() if sent and typed.strip() else None
     if not question and not spoken:
         return
-    with st.spinner(f"{name} is thinking…"):
+    with thinking(keywords(question) or ["listening", "voice"], f"{name} is thinking…", busy):
         audio_in = (spoken.getvalue(), spoken.type or "audio/wav") if spoken and not question else None
         reply, actions, transcript = mascot.ask(s.mascot_chat, question or "", _mascot_context(), audio_in)
         s.mascot_chat += [{"role": "user", "text": transcript or question or "🎤"}, {"role": "model", "text": reply}]
@@ -1590,13 +1609,13 @@ def desk_tab():
     if c1.button("Run the desk", type="primary", width="stretch"):
         due = review or not cfg.get("last_review") or (date.today() - date.fromisoformat(cfg["last_review"])).days >= 365
         due = due and any((cfg.get("holdings") or {}).values())
-        bar = st.progress(0.0, text="Starting…")
-        try:
-            st.session_state.desk = slm.run(cfg, due, use_model, lambda f, t: bar.progress(min(f, 1.0), text=t))
-        except Exception as ex:
-            st.session_state.desk = None
-            st.error(f"The desk couldn't finish: {type(ex).__name__}: {ex}")
-        bar.empty()
+        words = ["Nifty 500", "Supertrend", "RSI 14", "breadth", "SMA 200", "EMA 9", "RBI", "Fed", "CPI", "news", slm.MODEL.split("/")[-1]]
+        with thinking(words, "Starting…") as show:
+            try:
+                st.session_state.desk = slm.run(cfg, due, use_model, lambda f, t: show(f"{int(f * 100)}% · {t}"))
+            except Exception as ex:
+                st.session_state.desk = None
+                st.error(f"The desk couldn't finish: {type(ex).__name__}: {ex}")
     r = st.session_state.get("desk")
     if not r:
         st.html('<div class="empty">Enter your fund values above, then <b>Run the desk</b>. It scans all Nifty 500 stocks, so a run '

@@ -3,6 +3,7 @@ import base64
 import html
 import json
 import re
+from pathlib import Path
 
 import signals as sigmod
 
@@ -270,6 +271,33 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 [data-testid="stMain"]:focus, [data-testid="stMain"]:focus-visible { outline: none; }
 details.fold { margin-top: 10px; } details.fold > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0; }
 details.fold > summary:hover { color: var(--text); } details.fold[open] > summary { margin-bottom: 8px; }
+
+/* ---- thinking: bull and bear trade places over live candles while a model works; loops, ~52px tall ---- */
+.think { display: inline-grid; grid-template-columns: 40px 150px 40px; align-items: end; gap: 4px; height: 52px; padding: 4px 8px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.think img { width: 40px; height: auto; max-height: 40px; object-fit: contain; animation: 4s ease-in-out infinite; }
+.think .bull { filter: drop-shadow(0 0 4px rgba(22,199,132,.7)); animation-name: think-bull; }
+.think .bear { filter: drop-shadow(0 0 3px rgba(234,57,67,.9)) brightness(1.1); animation-name: think-bear; }
+.think .stage { position: relative; height: 44px; overflow: hidden; }
+.think .label { position: absolute; top: 0; left: 0; right: 0; font-size: 10px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; text-align: center; }
+/* two candle sets build left to right: green steps up while the bull leads, red steps down while the bear leads */
+.think .candles { position: absolute; left: 4px; right: 4px; bottom: 12px; height: 24px; }
+.think .candles i { position: absolute; left: calc(var(--i) * 10%); width: 7px; height: var(--h); border-radius: 1px; opacity: 0;
+  animation: think-in 4s linear infinite; }
+.think .candles i::before { content: ""; position: absolute; left: 3px; width: 1px; top: -3px; bottom: -2px; background: inherit; opacity: .7; }
+.think .candles .u { background: var(--up); bottom: calc(var(--i) * 1.5px); animation-delay: calc(var(--i) * .1s); }
+.think .candles .d { background: var(--down); bottom: calc((9 - var(--i)) * 1.5px); animation-delay: calc(2s + var(--i) * .1s); }
+.think .words { position: absolute; left: 0; right: 0; bottom: 0; height: 11px; overflow: hidden; font: 600 9px var(--mono);
+  color: var(--warn); white-space: nowrap; }
+.think .words span { display: inline-block; padding-left: 100%; animation: ticker 7s linear infinite; }
+@keyframes think-in { 0% { opacity: 0; transform: translateY(3px); } 4% { opacity: 1; transform: none; } 35% { opacity: 1; } 40%, 100% { opacity: 0; } }
+@keyframes think-bull { 0%, 100% { transform: translateX(0) scale(.95); opacity: .8; } 10%, 45% { transform: translateX(4px) scale(1.1); opacity: 1; }
+  55%, 92% { transform: translateX(0) scale(.88); opacity: .6; } }
+@keyframes think-bear { 0%, 45% { transform: translateX(0) scale(.88); opacity: .6; } 60%, 92% { transform: translateX(-4px) scale(1.1); opacity: 1; }
+  100% { transform: translateX(0) scale(.95); opacity: .8; } }
+@media (prefers-reduced-motion: reduce) { .think img, .think .candles i, .think .words span { animation: none; } .think .candles .u { opacity: 1; } }
+.st-key-mascot .mascot-bubble { max-height: 40vh; overflow-y: auto; }
 </style>
 """
 
@@ -308,6 +336,21 @@ MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" ro
 # st.html strips inline <svg>, so the drawing travels as an image
 MASCOT_URI = f"data:image/svg+xml;base64,{base64.b64encode(MASCOT_SVG.encode()).decode()}"
 MASCOT_IMG = f'<img src="{MASCOT_URI}" alt="Taursa, the bull and bear mascot">'
+_SPRITE = lambda n: "data:image/png;base64," + base64.b64encode((Path(__file__).parent / "assets" / f"thinking_{n}.png").read_bytes()).decode()
+THINK_BULL, THINK_BEAR = _SPRITE("bull"), _SPRITE("bear")  # cut out of the brand video (background removed)
+
+
+def thinking(words, label="Thinking…"):
+    """Small looping animation shown while a model works: bull, candles with the search keywords drifting under them, bear."""
+    hs = (7, 9, 6, 10, 8, 9, 6, 10, 8, 7)  # body heights in px
+    candles = "".join(f'<i class="{c}" style="--i:{k};--h:{h}px"></i>' for c in "ud" for k, h in enumerate(hs))
+    kw = " · ".join(html.escape(str(w)) for w in dict.fromkeys(w for w in words if w))
+    return (f'<div class="think" role="status" aria-live="polite" aria-label="{html.escape(label)}">'
+            f'<img class="bull" src="{THINK_BULL}" alt=""><div class="stage"><div class="label">{html.escape(label)}</div>'
+            f'<div class="candles">{candles}</div><div class="words"><span>{kw}</span></div></div>'
+            f'<img class="bear" src="{THINK_BEAR}" alt=""></div>')
+
+
 MASCOT_STYLE = f'<style>.st-key-mascot {{ --mascot: url("{MASCOT_URI}"); }}</style>'  # the chat button draws the mascot
 
 e = html.escape
