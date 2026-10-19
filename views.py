@@ -239,12 +239,21 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .board em { font-style: normal; font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--muted); }
 @media (max-width: 980px) { .board3 { grid-template-columns: 1fr; } }
 
-/* ---- Taursa: floats bottom-right on every tab (the badge only; no chat) ---- */
+/* ---- mascot: floats bottom-right on every tab ---- */
 .st-key-mascot { position: fixed; right: 20px; bottom: 16px; z-index: 1000; width: fit-content !important; align-items: flex-end; gap: 6px; }
+.st-key-mascot [data-testid="stAudio"] { height: 0; overflow: hidden; opacity: 0; }
 @keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-.taursa { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); }
-.taursa img { width: 78px; height: 78px; animation: mascot-bob 3.2s ease-in-out infinite; filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
-@media (prefers-reduced-motion: reduce) { .taursa img { animation: none; } }
+.mascot-bubble { max-width: 300px; background: var(--panel-2); border: 1px solid var(--up); border-radius: 12px 12px 4px 12px;
+  padding: 10px 12px; font-size: 13px; line-height: 1.45; color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+[data-testid="stPopoverBody"]:has(.mascot-head) { width: 400px; max-height: 72vh; overflow-y: auto; }
+.mascot-head { display: flex; align-items: center; gap: 10px; } .mascot-head img { width: 40px; height: 40px; }
+.mascot-head b { font-size: 15px; } .mascot-head span { display: block; font-size: 11px; color: var(--muted); }
+.st-key-mascot [data-testid="stPopoverButton"] { width: 96px; height: 104px; padding: 82px 0 0; white-space: nowrap;
+  background: no-repeat center 0 / 78px 78px var(--mascot); border: 0; box-shadow: none; font-size: 11px; color: var(--muted);
+  animation: mascot-bob 3.2s ease-in-out infinite; filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
+.st-key-mascot [data-testid="stPopoverButton"]:hover { filter: drop-shadow(0 0 10px rgba(22,199,132,.55)); color: var(--text); }
+.st-key-mascot [data-testid="stPopoverButton"] [data-testid="stIconMaterial"] { display: none; }
+@media (prefers-reduced-motion: reduce) { .st-key-mascot [data-testid="stPopoverButton"] { animation: none; } }
 
 /* ---- disclaimer ticker: scrolls right to left under the top bar ---- */
 .ticker { overflow: hidden; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2);
@@ -325,7 +334,8 @@ MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" ro
 </svg>"""
 # st.html strips inline <svg>, so the drawing travels as an image
 MASCOT_URI = f"data:image/svg+xml;base64,{base64.b64encode(MASCOT_SVG.encode()).decode()}"
-TAURSA = f'<div class="taursa"><img src="{MASCOT_URI}" alt="Taursa, the bull and bear mascot">Taursa</div>'
+MASCOT_IMG = f'<img src="{MASCOT_URI}" alt="Taursa, the bull and bear mascot">'
+MASCOT_STYLE = f'<style>.st-key-mascot {{ --mascot: url("{MASCOT_URI}"); }}</style>'  # the chat button draws the mascot
 # the thinking animation's bull and bear: cut out of the brand video (background removed), looping WebP clips in static/
 THINK_BULL, THINK_BEAR = "app/static/taursa_bull.webp", "app/static/taursa_bear.webp"
 

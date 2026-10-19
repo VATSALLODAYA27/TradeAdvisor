@@ -22,6 +22,7 @@ import journal
 import learn
 import market
 import mf
+import mascot
 import news
 import option_pick
 import results
@@ -32,7 +33,7 @@ import scanner
 import setups
 import strategies
 from setups import years_to
-from views import chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
+from views import MASCOT_IMG, MASCOT_STYLE, chart, commodity_cards, e, fmt, ob_levels, signals_panel, tone, verdicts, xray_board, xray_map
 
 UP, DOWN, MUTED = "#16c784", "#ea3943", "#7d8aa5"
 CHART_LAYOUT = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(15,22,38,.6)",
@@ -994,10 +995,13 @@ def results_view(symbol):
             st.html(f'<p class="note">Source: <a href="{e(r["url"])}" target="_blank">screener.in</a> · estimates: Yahoo</p>')
 
 
+STOP = set("a an and are as at be by can could did do does for from give how i if in is it its me my of on or please show "
+           "should tell that the this to was what when which who why will with would you your about any".split())
+
+
 @contextmanager
 def thinking(words, label, where=None):
-    """The bull-and-bear thinking animation, drawn next to Taursa while a model works; yields show(label) to update its
-    caption. where: draw somewhere else (an st.empty())."""
+    """The bull-and-bear animation while a model works; yields show(label) to update its caption. where: an st.empty() to draw in."""
     ph = where or st.session_state.get("_taursa_busy") or st.empty()
     show = lambda text: ph.html(views.thinking(words, text))
     show(label)
@@ -1007,12 +1011,72 @@ def thinking(words, label, where=None):
         ph.empty()
 
 
+def keywords(text, n=6):
+    """The searchable words of a question, for the thinking animation."""
+    return [w for w in re.findall(r"[A-Za-z0-9&.]+", text or "") if w.lower() not in STOP and len(w) > 2][:n]
+
+
+def _mascot_context():
+    """What the user is looking at, so 'this stock' or 'here' means something to the mascot."""
+    s = st.session_state
+    parts = [f"user is on the {s.get('main_tab', 'Analyze')} tab"]
+    if r := s.get("result"):
+        v = ", ".join(f"{n}: {x['verdict']}" for n, x in r["verdicts"].items())
+        m = r["metrics"]
+        parts.append(f"analysis on screen: {r['symbol']} at {m.get('price') or m.get('close')} ({v})")
+    return "; ".join(parts)
+
+
 def mascot_widget():
-    """Taursa's badge, floating bottom-right on every tab. No chat; while any model is thinking, the thinking animation
-    (bull and bear clips from the brand video) plays right above it."""
+    """Taursa, floating bottom-right on every tab: ask by text or voice; it answers aloud and can move around the site."""
+    s, name = st.session_state, mascot.CFG["name"]
+    s.setdefault("mascot_chat", [])
+    s.setdefault("mascot_mic_n", 0)
     with st.container(key="mascot"):
-        st.session_state["_taursa_busy"] = st.empty()
-        st.html(views.TAURSA)
+        if bubble := s.pop("mascot_bubble", None):
+            plain = re.sub(r"[*_`#]+", "", bubble)  # the bubble is plain text: drop markdown marks like **APPLY**
+            st.html(f'<div class="mascot-bubble">{e(plain)}</div>')
+        if audio := s.pop("mascot_audio", None):
+            st.audio(audio, format="audio/wav", autoplay=True)
+        if dl := s.get("mascot_download"):
+            st.download_button(f"Download report · {dl['name'].split('_')[0]}", dl["data"], dl["name"], "application/pdf",
+                               icon=":material/download:", type="primary", key="mascot_dl")
+        busy = s["_taursa_busy"] = st.empty()  # every thinking animation (Taursa, Analyze, the desk) appears here, right above Taursa
+        st.html(MASCOT_STYLE)
+        with st.popover(f"Ask {name}"):
+            st.html(f'<div class="mascot-head">{MASCOT_IMG}<div><b>{name}</b><span>your TradeAdvisor guide · '
+                    'answers aloud · can open pages and run analyses</span></div></div>')
+            st.caption("Ask about any stock, IPO, fund or how this site works, or ask for a PDF report. The answer appears "
+                       "next to me and is read aloud. Try \"analyze NIFTY 50\" or \"did Reliance beat estimates?\".")
+            with st.form("mascot_form", clear_on_submit=True, border=False):
+                c1, c2 = st.columns([5, 1], vertical_alignment="bottom")
+                typed = c1.text_input("Ask", placeholder=f"Ask {name}…", label_visibility="collapsed")
+                sent = c2.form_submit_button("Ask", type="primary")
+            spoken = st.audio_input("Or ask by voice", key=f"mascot_mic_{s.mascot_mic_n}")
+            c1, c2 = st.columns(2)
+            c1.toggle("Speak answers", value=True, key="mascot_voice")
+            if c2.button("New conversation", disabled=not s.mascot_chat, help=f"{name} remembers your last questions; this forgets them"):
+                s.mascot_chat = []
+                st.rerun()
+    question = typed.strip() if sent and typed.strip() else None
+    if not question and not spoken:
+        return
+    with thinking(keywords(question) or ["listening", "voice"], f"{name} is thinking…", busy):
+        audio_in = (spoken.getvalue(), spoken.type or "audio/wav") if spoken and not question else None
+        reply, actions, transcript = mascot.ask(s.mascot_chat, question or "", _mascot_context(), audio_in)
+        s.mascot_chat += [{"role": "user", "text": transcript or question or "🎤"}, {"role": "model", "text": reply}]
+        if s.get("mascot_voice", True):
+            s.mascot_audio = mascot.speak(reply)
+    s.mascot_bubble = reply
+    s.mascot_mic_n += 1  # a fresh recorder, so the same clip isn't asked twice
+    for a in actions:
+        if "download" in a:
+            s.mascot_download = a["download"]
+        if "result" in a:
+            s.result, s.goto_symbol = a["result"], a["symbol"]
+        if "goto" in a:
+            s.goto = a["goto"]
+    st.rerun()
 
 
 def market_group():
