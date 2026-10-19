@@ -7,6 +7,7 @@ history.db
 trades.csv
 paper.json
 desk.json
+desk_last.json
 indicators.json
 briefs/
 *.pdf

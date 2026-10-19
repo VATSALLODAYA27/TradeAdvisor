@@ -15,6 +15,7 @@ import data
 import history
 import setups
 import tabs
+from slm import ui as slm_ui  # the AI Portfolio Desk: a separate package
 import views
 
 st.set_page_config(page_title="Trade Advisor", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
@@ -47,7 +48,7 @@ PERSIST = ("symbol", "exchange", "vatsal_mode", "advisors", "use_llm", "min_rr",
            "opp_opts", "strat_preset", "strat_w", "strat_lots", "mkt_pick", "mkt_group", "sec_rel", "ev_fo", "brief_uni",
            "brief_rr", "brief_cap", "sc_strike", "sc_kind", "bt_sym", "bt_adv", "bt_period", "bt_exch", "bt_long", "bt_short",
            "bt_stop", "bt_target", "bt_cost", "bt_shorts", "ipo_kind", "ipo_view", "ipo_days",
-           "ob_uni", "ob_sym", "com_sym", "com_view", "pp_view", "mkt_view", "jr_view", "learn_view", "desk_model", "desk_review", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view",
+           "ob_uni", "ob_sym", "com_sym", "com_view", "pp_view", "mkt_view", "jr_view", "learn_view", "desk_model", "desk_review", "desk_view", "mf_cat", "mf_plan", "mf_bench", "mf_sort", "mf_cmp", "mf_cmp_bench", "mf_period", "news_sym", "an_view",
            "lb_strat", "lb_sym", "lb_iv", "lb_period", "lb_exch", "lb_mode", "lb_stop", "lb_target", "lb_cost", "lb_shorts", "lb_exp", "lb_lots",
            "ps_cap", "ps_risk", "ps_entry", "ps_stop")
 for k in PERSIST:
@@ -520,7 +521,7 @@ if tab_ind.open:
 
 
 for tab, render in [(tab_opp, lambda: tabs.opportunities_tab(st.session_state.get("vatsal_mode", False))),
-                    (tab_desk, tabs.desk_tab), (tab_ob, tabs.orderblock_tab),
+                    (tab_desk, lambda: slm_ui.render(tabs.thinking)), (tab_ob, tabs.orderblock_tab),
                     (tab_bt, lambda: tabs.backtest_tab(advisor.RULES, st.session_state.get("vatsal_mode", False))),
                     (tab_paper, tabs.paper_tab), (tab_learn, tabs.learn_tab),
                     (tab_mkt, tabs.market_group), (tab_com, lambda: tabs.commodity_tab(advisor.RULES)),

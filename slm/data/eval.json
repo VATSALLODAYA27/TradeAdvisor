@@ -1,0 +1,39 @@
+{
+ "run_at": "2026-10-19 16:38",
+ "rows": [
+  {
+   "model": "openai/gpt-oss-20b",
+   "footprint": "21B total / 3.6B active (MoE), MXFP4: ~13 GB, fits one 16 GB consumer GPU",
+   "cases": 4,
+   "schema_valid": 4,
+   "avg_rule_fixes": 1.5,
+   "avg_unverified_numbers": 0.0,
+   "avg_seconds": 1.6,
+   "errors": []
+  },
+  {
+   "model": "qwen/qwen3.8-27b",
+   "footprint": "27B dense: ~16 GB at 4-bit, needs a 24 GB GPU",
+   "cases": 4,
+   "schema_valid": 2,
+   "avg_rule_fixes": 0.0,
+   "avg_unverified_numbers": 0.0,
+   "avg_seconds": 2.7,
+   "errors": [
+    "Groq free-tier token limit reached; try again in a minute"
+   ]
+  },
+  {
+   "model": "openai/gpt-oss-120b",
+   "footprint": "117B / 5.1B active, MXFP4: ~63 GB, needs an 80 GB data-centre GPU (reference only)",
+   "cases": 4,
+   "schema_valid": 4,
+   "avg_rule_fixes": 2.0,
+   "avg_unverified_numbers": 0.0,
+   "avg_seconds": 4.1,
+   "errors": []
+  }
+ ],
+ "selected": "openai/gpt-oss-20b",
+ "rule": "most schema-valid answers among models that fit a consumer GPU, then fewest guardrail fixes, then fewest unverified numbers"
+}

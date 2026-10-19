@@ -77,6 +77,9 @@ TOOLS = [{"function_declarations": [
                     "required": ["query"]}},
     {"name": "ipo_list", "description": "Open and upcoming IPOs with GMP, subscription, key financials and the IPO verdict.",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "portfolio_desk", "description": "The AI Portfolio Desk's latest result: market regime, mutual-fund rebalance orders, "
+     "Weekly Core / Daily Tactical stock decisions with conviction, exits and hedge. Opens the desk tab.",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "market_overview", "description": "NIFTY 50, India VIX, advance/decline, FII/DII flows and the latest market headlines.",
      "parameters": {"type": "object", "properties": {}}},
 ]}]
@@ -118,6 +121,16 @@ def run_tool(name, args):
     if name == "open_tab":
         tab = args.get("tab")
         return ({"opened": tab}, {"goto": tab}) if tab in TABS else ({"error": f"no tab {tab}"}, None)
+    if name == "portfolio_desk":
+        from slm import store
+        r = store.last()
+        if not r:
+            return {"error": "The desk hasn't been run yet. Ask the user to click Run the desk on the AI Portfolio Desk tab."}, {"goto": "AI Portfolio Desk"}
+        o = r["output"]
+        return {"as_of": r["facts"]["as_of"], "macro_verdict": o["macro_verdict"], "fund_orders": o["mutual_fund_rebalance_orders"],
+                "stock_decisions": [{k: d[k] for k in ("ticker", "strategy_sleeve", "conviction", "entry_price", "stop_loss_price")}
+                                    for d in o["stock_trade_decisions"]],
+                "exits": o["portfolio_exits"], "hedge": r["facts"]["hedge"], "disclaimer": o["compliance_disclaimer"]}, {"goto": "AI Portfolio Desk"}
     if name == "analyze_stock":
         sym, ex = _symbol(args.get("query", ""))
         out = advisor.build(STOCK_ADVISORS).invoke({"symbol": sym, "exchange": ex, "use_llm": False, "verdicts": {}})
