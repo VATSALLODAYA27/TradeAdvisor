@@ -1,9 +1,7 @@
 """HTML/CSS for the Streamlit UI: the trading-terminal look of the old React app. Pure string builders, no Streamlit calls."""
-import base64
 import html
 import json
 import re
-from pathlib import Path
 
 import signals as sigmod
 
@@ -240,21 +238,13 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 .board em { font-style: normal; font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--muted); }
 @media (max-width: 980px) { .board3 { grid-template-columns: 1fr; } }
 
-/* ---- mascot: floats bottom-right on every tab ---- */
-.st-key-mascot { position: fixed; right: 20px; bottom: 16px; z-index: 1000; width: fit-content !important; align-items: flex-end; gap: 6px; }
-.st-key-mascot [data-testid="stAudio"] { height: 0; overflow: hidden; opacity: 0; }
-@keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-.mascot-bubble { max-width: 300px; background: var(--panel-2); border: 1px solid var(--up); border-radius: 12px 12px 4px 12px;
-  padding: 10px 12px; font-size: 13px; line-height: 1.45; color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-[data-testid="stPopoverBody"]:has(.mascot-head) { width: 400px; max-height: 72vh; overflow-y: auto; }
-.mascot-head { display: flex; align-items: center; gap: 10px; } .mascot-head img { width: 40px; height: 40px; }
-.mascot-head b { font-size: 15px; } .mascot-head span { display: block; font-size: 11px; color: var(--muted); }
-.st-key-mascot [data-testid="stPopoverButton"] { width: 96px; height: 104px; padding: 82px 0 0; white-space: nowrap;
-  background: no-repeat center 0 / 78px 78px var(--mascot); border: 0; box-shadow: none; font-size: 11px; color: var(--muted);
-  animation: mascot-bob 3.2s ease-in-out infinite; filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
-.st-key-mascot [data-testid="stPopoverButton"]:hover { filter: drop-shadow(0 0 10px rgba(22,199,132,.55)); color: var(--text); }
-.st-key-mascot [data-testid="stPopoverButton"] [data-testid="stIconMaterial"] { display: none; }
-@media (prefers-reduced-motion: reduce) { .st-key-mascot [data-testid="stPopoverButton"] { animation: none; } }
+/* ---- Taursa: floats bottom-right on every tab ---- */
+.st-key-mascot { position: fixed; right: 16px; bottom: 12px; z-index: 1000; width: fit-content !important; align-items: flex-end; gap: 6px; }
+.taursa { display: flex; align-items: flex-end; gap: 2px; padding: 4px 8px 2px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg-2); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.taursa img { width: 52px; height: auto; } .taursa .bull { filter: drop-shadow(0 0 4px rgba(22,199,132,.6)); }
+.taursa .bear { width: 40px; filter: drop-shadow(0 0 4px rgba(234,57,67,.7)); }
+.taursa span { font-size: 10px; color: var(--muted); writing-mode: vertical-rl; transform: rotate(180deg); margin-left: 2px; }
 
 /* ---- disclaimer ticker: scrolls right to left under the top bar ---- */
 .ticker { overflow: hidden; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2);
@@ -309,35 +299,10 @@ TICKER = ('<div class="ticker" role="note" aria-label="Disclaimer"><span><b>Disc
 
 CREDIT = '<div class="credit">Created by <b>Vatsal</b></div>'
 
-# Taursa, the site mascot: a bull (green, up) and a bear (red, down) sharing one badge, with a price line between them.
-MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Taursa, the bull and bear mascot">
-<circle cx="60" cy="60" r="57" fill="#0f1626" stroke="#1e2a42" stroke-width="3"/>
-<path d="M60 3a57 57 0 0 0 0 114z" fill="#16c784" opacity=".12"/><path d="M60 3a57 57 0 0 1 0 114z" fill="#ea3943" opacity=".12"/>
-<path d="M27 50C15 50 9 42 11 28c3 8 9 13 19 15zM49 50c12 0 18-8 16-22-3 8-9 13-19 15z" fill="#f3e4c4" stroke="#c9b48a" stroke-width="1"/>
-<ellipse cx="18" cy="58" rx="7" ry="3.6" fill="#0e9f6e" transform="rotate(-18 18 58)"/>
-<ellipse cx="58" cy="58" rx="7" ry="3.6" fill="#0e9f6e" transform="rotate(18 58 58)"/>
-<path d="M23 54c0-9 6-13 15-13s15 4 15 13l-1 14c-1 9-6 13-14 13s-13-4-14-13z" fill="#16c784"/>
-<path d="M33 42l5 6 5-6" fill="#0e9f6e"/>
-<ellipse cx="38" cy="77" rx="12" ry="8.5" fill="#7ee0b5"/>
-<ellipse cx="33.5" cy="77.5" rx="2.2" ry="2.8" fill="#0b3d2a"/><ellipse cx="42.5" cy="77.5" rx="2.2" ry="2.8" fill="#0b3d2a"/>
-<path d="M33 85a5 4 0 0 0 10 0" fill="none" stroke="#c9b48a" stroke-width="1.8" stroke-linecap="round"/>
-<circle cx="31" cy="60" r="3.2" fill="#04110b"/><circle cx="45" cy="60" r="3.2" fill="#04110b"/>
-<circle cx="32" cy="59" r="1.1" fill="#fff"/><circle cx="46" cy="59" r="1.1" fill="#fff"/>
-<path d="M27 54l6 2M49 54l-6 2" stroke="#0b3d2a" stroke-width="1.8" stroke-linecap="round"/>
-<circle cx="70" cy="44" r="7" fill="#ea3943"/><circle cx="98" cy="44" r="7" fill="#ea3943"/>
-<circle cx="70" cy="44" r="3" fill="#b4232f"/><circle cx="98" cy="44" r="3" fill="#b4232f"/>
-<circle cx="84" cy="66" r="20" fill="#ea3943"/>
-<ellipse cx="84" cy="76" rx="9" ry="7" fill="#f4a4aa"/><ellipse cx="84" cy="73" rx="3.4" ry="2.4" fill="#2a0a0d"/>
-<circle cx="77" cy="61" r="3" fill="#2a0a0d"/><circle cx="91" cy="61" r="3" fill="#2a0a0d"/>
-<circle cx="78" cy="60" r="1" fill="#fff"/><circle cx="92" cy="60" r="1" fill="#fff"/>
-<path d="M18 100l14-9 10 5 12-12 10 6 12-14 10 7 16-15" fill="none" stroke="#f0b90b" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M95 69l8-1-1 8" fill="none" stroke="#f0b90b" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>"""
-# st.html strips inline <svg>, so the drawing travels as an image
-MASCOT_URI = f"data:image/svg+xml;base64,{base64.b64encode(MASCOT_SVG.encode()).decode()}"
-MASCOT_IMG = f'<img src="{MASCOT_URI}" alt="Taursa, the bull and bear mascot">'
-_SPRITE = lambda n: "data:image/png;base64," + base64.b64encode((Path(__file__).parent / "assets" / f"thinking_{n}.png").read_bytes()).decode()
-THINK_BULL, THINK_BEAR = _SPRITE("bull"), _SPRITE("bear")  # cut out of the brand video (background removed)
+# the bull and bear cut out of the brand video (background removed), looping WebP clips served from static/
+THINK_BULL, THINK_BEAR = "app/static/taursa_bull.webp", "app/static/taursa_bear.webp"
+TAURSA = (f'<div class="taursa" title="Taursa"><img class="bull" src="{THINK_BULL}" alt="Taursa bull">'
+          f'<img class="bear" src="{THINK_BEAR}" alt="Taursa bear"><span>Taursa</span></div>')
 
 
 def thinking(words, label="Thinking…"):
@@ -351,7 +316,6 @@ def thinking(words, label="Thinking…"):
             f'<img class="bear" src="{THINK_BEAR}" alt=""></div>')
 
 
-MASCOT_STYLE = f'<style>.st-key-mascot {{ --mascot: url("{MASCOT_URI}"); }}</style>'  # the chat button draws the mascot
 
 e = html.escape
 

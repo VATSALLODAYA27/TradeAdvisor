@@ -133,7 +133,7 @@ def _results(r):
 
 
 def render(thinking):
-    """thinking: Taursa's animation context manager (tabs.thinking)."""
+    """thinking: Taursa's animation context manager (tabs.thinking); it plays next to Taursa, not on this page."""
     st.html('<div class="sec">AI Portfolio Desk<span class="muted">quant engine computes every number · small open-weights model '
             f'({model.MODEL}) decides and explains · schema and rule guardrails · not investment advice</span></div>')
     desk, ev = st.tabs(["Desk", "Model evaluation"], key="desk_view", on_change="rerun")
@@ -151,12 +151,17 @@ def render(thinking):
         if c1.button("Run the desk", type="primary", width="stretch"):
             words = ["Nifty 500", "Supertrend", "RSI 14", "RS rank", "breadth", "delivery %", "NSE filings", "earnings", "RBI", "Fed", "CPI",
                      model.MODEL.split("/")[-1]]
-            with thinking(words, "Starting…") as show:
+            bar = st.progress(0.0, text="Starting…")
+            with thinking(words, "Desk is thinking…") as show:
+                def step(fr, txt):
+                    bar.progress(min(fr, 1.0), text=txt)
+                    show(f"{int(fr * 100)}% · {txt}")
                 try:
-                    st.session_state.desk = pipeline.run(cfg, forced, use_model, lambda fr, txt: show(f"{int(fr * 100)}% · {txt}"))
+                    st.session_state.desk = pipeline.run(cfg, forced, use_model, step)
                 except Exception as ex:
                     st.session_state.desk = None
                     st.error(f"The desk couldn't finish: {type(ex).__name__}: {ex}")
+            bar.empty()
         r = st.session_state.get("desk") or store.last()
         if not r:
             st.html('<div class="empty">Enter your inputs above, then <b>Run the desk</b>. It scans all Nifty 500 stocks, so a run takes '

@@ -12,6 +12,6 @@ It shares no code with the rest of TradeAdvisor. Its own pieces:
   dataset.py     financial instruction-tuning dataset with reasoning chains (Deliverable 2)
   finetune_colab.py  LoRA fine-tune of the base model on a free Colab GPU (not run on this PC)
   ui.py          the Streamlit tab
-The only links out: the Streamlit tab registration, Taursa (mascot.py reads the last result) and the GROQ_API_KEY.
+The only links out: the Streamlit tab registration, Taursa (its thinking animation plays while the desk runs) and the GROQ_API_KEY.
 """
 from .pipeline import run  # noqa: F401
