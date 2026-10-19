@@ -245,15 +245,13 @@ button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stBa
 @keyframes mascot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 .mascot-bubble { max-width: 300px; background: var(--panel-2); border: 1px solid var(--up); border-radius: 12px 12px 4px 12px;
   padding: 10px 12px; font-size: 13px; line-height: 1.45; color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-[data-testid="stPopoverBody"]:has(.mascot-head) { width: 400px; max-height: 72vh; overflow-y: auto; }
-.mascot-head { display: flex; align-items: center; gap: 10px; } .mascot-head img { width: 40px; height: 40px; }
-.mascot-head b { font-size: 15px; } .mascot-head span { display: block; font-size: 11px; color: var(--muted); }
-.st-key-mascot [data-testid="stPopoverButton"] { width: 96px; height: 104px; padding: 82px 0 0; white-space: nowrap;
-  background: no-repeat center 0 / 78px 78px var(--mascot); border: 0; box-shadow: none; font-size: 11px; color: var(--muted);
-  animation: mascot-bob 3.2s ease-in-out infinite; filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
-.st-key-mascot [data-testid="stPopoverButton"]:hover { filter: drop-shadow(0 0 10px rgba(22,199,132,.55)); color: var(--text); }
-.st-key-mascot [data-testid="stPopoverButton"] [data-testid="stIconMaterial"] { display: none; }
-@media (prefers-reduced-motion: reduce) { .st-key-mascot [data-testid="stPopoverButton"] { animation: none; } }
+.taursa { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); flex-shrink: 0; }
+.taursa img { width: 72px; height: 72px; animation: mascot-bob 3.2s ease-in-out infinite; filter: drop-shadow(0 6px 14px rgba(0,0,0,.45)); }
+.st-key-mascot [data-testid="stChatInput"] { box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+.taursa { cursor: pointer; }
+/* closed until Taursa is tapped; a tap anywhere else closes it again (TAURSA_JS) */
+body:not([data-taursa="open"]) .st-key-mascot [data-testid="stChatInput"], body:not([data-taursa="open"]) .mascot-bubble { display: none; }
+@media (prefers-reduced-motion: reduce) { .taursa img { animation: none; } }
 
 /* ---- disclaimer ticker: scrolls right to left under the top bar ---- */
 .ticker { overflow: hidden; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2);
@@ -334,8 +332,19 @@ MASCOT_SVG = """<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" ro
 </svg>"""
 # st.html strips inline <svg>, so the drawing travels as an image
 MASCOT_URI = f"data:image/svg+xml;base64,{base64.b64encode(MASCOT_SVG.encode()).decode()}"
-MASCOT_IMG = f'<img src="{MASCOT_URI}" alt="Taursa, the bull and bear mascot">'
-MASCOT_STYLE = f'<style>.st-key-mascot {{ --mascot: url("{MASCOT_URI}"); }}</style>'  # the chat button draws the mascot
+TAURSA = f'<div class="taursa" role="button" title="Ask Taursa"><img src="{MASCOT_URI}" alt="Taursa, the bull and bear mascot">Taursa</div>'
+# Tap Taursa: open / close the ask box and answer. Tap anywhere else: close. The state lives on <body>, so reruns keep it.
+TAURSA_JS = """<script>
+if (!window.__taursa) {
+  window.__taursa = true;
+  document.addEventListener("click", (ev) => {
+    const b = document.body;
+    if (ev.target.closest(".taursa")) b.dataset.taursa = b.dataset.taursa === "open" ? "" : "open";
+    else if (!ev.target.closest(".st-key-mascot")) b.dataset.taursa = "";
+  }, true);
+}
+</script>"""
+OPEN_TAURSA = '<script>document.body.dataset.taursa = "open";</script>'  # an answer just arrived: show it
 # the thinking animation's bull and bear: cut out of the brand video (background removed), looping WebP clips in static/
 THINK_BULL, THINK_BEAR = "app/static/taursa_bull.webp", "app/static/taursa_bear.webp"
 
