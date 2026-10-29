@@ -392,16 +392,28 @@ def events_calendar():
 
 
 def event_metrics(symbol):
-    """Days until this symbol's next corporate event (results, board meeting), for rules and the strike check."""
+    """Days until this symbol's next corporate event (results, board meeting), for rules and the strike check.
+    NSE's calendar first; when NSE refuses (it blocks cloud servers), Yahoo's next earnings date."""
     today = datetime.now().date()
-    mine = sorted((r for r in events_calendar() if r["symbol"] == symbol and r["when"] >= today), key=lambda r: r["when"])
+    try:
+        cal = events_calendar()
+    except requests.HTTPError:
+        dates = [d for d in (yf.Ticker(yf_symbol(symbol, "NSE")).calendar or {}).get("Earnings Date", []) if d >= today]
+        return {"days_to_event": (dates[0] - today).days, "event": f"Results on {dates[0]:%d-%b-%Y} (Yahoo)"} if dates else             {"days_to_event": None, "event": None}
+    mine = sorted((r for r in cal if r["symbol"] == symbol and r["when"] >= today), key=lambda r: r["when"])
     if not mine:
         return {"days_to_event": None, "event": None}
     return {"days_to_event": (mine[0]["when"] - today).days, "event": f"{mine[0]['purpose']} on {mine[0]['date']}"}
 
 
 def market_metrics():
-    idx = {x["index"]: x for x in nse("allIndices")["data"]}
+    try:
+        idx = {x["index"]: x for x in nse("allIndices")["data"]}
+    except requests.HTTPError:  # NSE refuses cloud servers: NIFTY and VIX from Yahoo; breadth, P/E and FII/DII have no free twin
+        n, v = (yf.Ticker(t).history(period="3mo")["Close"] for t in ("^NSEI", "^INDIAVIX"))
+        pct = lambda s, k: round(float(s.iloc[-1] / s.iloc[-1 - k] - 1) * 100, 2)
+        return {"nifty": round(float(n.iloc[-1]), 2), "nifty_change_pct": pct(n, 1), "nifty_30d_pct": pct(n, 21), "nifty_pe": None,
+                "vix": round(float(v.iloc[-1]), 2), "vix_change_pct": pct(v, 1), "nifty_adv_dec": None, "fii_net_cr": None, "dii_net_cr": None}
     n, vix = idx["NIFTY 50"], idx["INDIA VIX"]
     flows = {x["category"]: float(x["netValue"]) for x in nse("fiidiiTradeReact")}
     adv, dec = int(n["advances"]), int(n["declines"])
@@ -496,6 +508,14 @@ def collect(symbol, exchange="NSE"):
     for name, f in futures:  # merged in the listed order, as before
         try:
             out.update(f.result())
+        except requests.HTTPError as e:
+            if "nseindia.com" not in str(e):
+                errors[name] = f"{type(e).__name__}: {e}"
+            elif name == "options":
+                errors[name] = ("NSE refused the option-chain request (it blocks cloud servers and, at times, automated requests), "
+                                "so option data is missing for this run. Try again in a minute, or run the app on your own PC.")
+            else:
+                errors[name] = "NSE refused the request, so this part is missing for this run. Try again in a minute."
         except Exception as e:
             errors[name] = f"{type(e).__name__}: {e}"
     chain = out.pop("_chain", None)
